@@ -2,7 +2,7 @@
 
 ## Requirements
 
-* Python 3.9+ (no third-party runtime packages)
+* Python 3.10+ (no third-party runtime packages)
 * For tests: `pytest`; optional `ruff`, `bandit`, `shellcheck`
 * For UI tests: Node.js 18+ and Playwright (Chromium)
 * For packaging/container tests: Docker

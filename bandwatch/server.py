@@ -463,7 +463,7 @@ def make_handler(app):
                         beat = time.time()
                     if not self._session():
                         break
-            except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError):
+            except (TimeoutError, BrokenPipeError, ConnectionResetError, OSError):
                 pass
             finally:
                 with app.stream_lock:

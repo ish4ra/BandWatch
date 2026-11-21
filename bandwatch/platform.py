@@ -11,7 +11,6 @@ import http.client
 import json
 import os
 import shutil
-import socket
 import struct
 import subprocess
 import time
@@ -196,7 +195,7 @@ class LinuxPlatform(Platform):
             if len(data) > MAX_HTTP_RESPONSE:
                 raise OSError("response too large")
             return resp.status, data
-        except (http.client.HTTPException, socket.timeout, ValueError) as exc:
+        except (TimeoutError, http.client.HTTPException, ValueError) as exc:
             raise OSError(str(exc) or type(exc).__name__) from None
         finally:
             conn.close()

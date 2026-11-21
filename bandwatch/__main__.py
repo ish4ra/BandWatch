@@ -178,7 +178,7 @@ def cmd_check(args):
     def add(name, ok, detail, required=True):
         results.append({"check": name, "ok": bool(ok), "required": required, "detail": detail})
 
-    add("python", sys.version_info >= (3, 9), sys.version.split()[0] + " (3.9+ required)")
+    add("python", sys.version_info >= (3, 10), sys.version.split()[0] + " (3.10+ required)")
     for mod in REQUIRED_MODULES:
         try:
             __import__(mod)

@@ -16,7 +16,7 @@ Nothing is marked *officially supported* until it passes the
 | --- | --- | --- |
 | 25.12.x | apk v3 (`.apk`) + installer archive | Container-tested (25.12.0 rootfs, apk 3.0.2) |
 | 24.10.x | opkg (`.ipk`) + installer archive | Container-tested (24.10.4 rootfs) |
-| 23.05.x and older | opkg | Untested (needs Python ≥ 3.9 packages) |
+| 23.05.x and older | opkg | Untested (needs Python ≥ 3.10 packages; 23.05 ships 3.11) |
 
 ## Hardware / targets
 
@@ -58,5 +58,5 @@ Chrome ≥ 111). PWA installation requires HTTPS (or localhost).
 
 ## Python
 
-Python 3.9+ standard library. Tested with 3.13 (OpenWrt 25.12 ships 3.13).
+Python 3.10+ standard library. CI tests 3.10, 3.11 and 3.13 (OpenWrt 25.12 ships 3.13). The code also parses as 3.9 but 3.9 is not tested.
 `python3-openssl` is optional (faster PBKDF2).
