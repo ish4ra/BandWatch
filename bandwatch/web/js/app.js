@@ -18,6 +18,7 @@ const state = {
   period: sessionStorageGet('bw.period') || 'today',
   custom: { start: '', end: '' },
   settings: null,
+  routeGen: 0,
 };
 
 function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
@@ -145,6 +146,13 @@ function errorCard(err, retry) {
   const id = `retry-${Math.random().toString(36).slice(2)}`;
   setTimeout(() => { const b = document.getElementById(id); if (b) b.onclick = retry; });
   return `<div class="card error-card">${icons.alert}<div><h3>Could not load data</h3><p>${esc(err.message)}</p></div><button class="btn" id="${id}">Retry</button></div>`;
+}
+
+// A view's async work must not touch the page once the user has navigated
+// away: a late response would otherwise render into (or replace) the next view.
+function viewAlive() {
+  const gen = state.routeGen;
+  return () => gen === state.routeGen;
 }
 
 function every(ms, fn) {
@@ -344,10 +352,11 @@ views.overview = {
       sparkline($('#s-down', el), recent.map((p) => p[1]), getComputedStyle(document.documentElement).getPropertyValue('--c-down').trim());
       sparkline($('#s-up', el), recent.map((p) => p[2]), getComputedStyle(document.documentElement).getPropertyValue('--c-up').trim());
     });
+    const alive = viewAlive();
     const load = async () => {
       let o;
-      try { o = await api('/api/overview'); } catch (e) { if (e.status !== 401) $('#c-sources', el).innerHTML = errorCard(e, load); return; }
-      renderOverview(el, o);
+      try { o = await api('/api/overview'); } catch (e) { if (e.status !== 401 && alive()) $('#c-sources', el).innerHTML = errorCard(e, load); return; }
+      if (alive()) renderOverview(el, o);
     };
     await load();
     every(15000, load);
@@ -481,8 +490,13 @@ views.devices = {
         tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
       });
     };
+    const alive = viewAlive();
     const load = async () => {
-      try { data = await api(`/api/devices?${periodQuery()}`); render(); } catch (e) { if (e.status !== 401) $('#dev-table', el).innerHTML = errorCard(e, load); }
+      let r;
+      try { r = await api(`/api/devices?${periodQuery()}`); } catch (e) { if (e.status !== 401 && alive()) $('#dev-table', el).innerHTML = errorCard(e, load); return; }
+      if (!alive()) return;
+      data = r;
+      render();
     };
     $('#dev-q', el).addEventListener('input', (e) => { ui.q = e.target.value; render(); });
     $$('.seg[data-f]', el).forEach((b) => b.addEventListener('click', () => { ui.filter = b.dataset.f; localSet('bw.devfilter', ui.filter); $$('.seg[data-f]', el).forEach((x) => x.classList.toggle('on', x === b)); render(); }));
@@ -500,9 +514,11 @@ function ipNum(ip) {
 async function deviceDetail(el, mac) {
   el.innerHTML = `<a class="back" href="#/devices">${icons.back} All devices</a><div id="dd">${skeleton(5)}</div>`;
   let chart = null;
+  const alive = viewAlive();
   const load = async () => {
     let d;
-    try { d = await api(`/api/devices/${encodeURIComponent(mac)}?${periodQuery()}`); } catch (e) { if (e.status !== 401) $('#dd', el).innerHTML = errorCard(e, load); return; }
+    try { d = await api(`/api/devices/${encodeURIComponent(mac)}?${periodQuery()}`); } catch (e) { if (e.status !== 401 && alive()) $('#dd', el).innerHTML = errorCard(e, load); return; }
+    if (!alive()) return;
     const dev = d.device;
     const root = $('#dd', el);
     if (!root.dataset.ready) {
@@ -546,9 +562,11 @@ views.aria2 = {
     el.innerHTML = `<div id="a-body">${skeleton(5)}</div>`;
     let chart = null;
     let live = null;
+    const alive = viewAlive();
     const load = async () => {
       let d;
-      try { d = await api(`/api/aria2?${periodQuery()}`); } catch (e) { if (e.status !== 401) $('#a-body', el).innerHTML = errorCard(e, load); return; }
+      try { d = await api(`/api/aria2?${periodQuery()}`); } catch (e) { if (e.status !== 401 && alive()) $('#a-body', el).innerHTML = errorCard(e, load); return; }
+      if (!alive()) return;
       const body = $('#a-body', el);
       if (!d.available && d.summary.total === null) {
         body.innerHTML = `<section class="card">${emptyState('aria2', d.status.state === 'disabled' ? 'aria2 integration is disabled' : 'aria2 is not connected', `${esc(d.status.message)}. BandWatch only reads aria2 status over JSON-RPC; it never starts, stops or changes downloads.`, '<a class="btn" href="#/settings">Configure aria2</a>')}</section>`;
@@ -629,19 +647,22 @@ views.history = {
     $$('.seg[data-s]', el).forEach((b) => b.addEventListener('click', () => { ui.series = b.dataset.s; sessionStorageSet('bw.series', ui.series); $$('.seg[data-s]', el).forEach((x) => x.classList.toggle('on', x === b)); load(); }));
     $$('.seg[data-st]', el).forEach((b) => b.addEventListener('click', () => { chart.stacked = b.dataset.st === '1'; $$('.seg[data-st]', el).forEach((x) => x.classList.toggle('on', x === b)); chart.draw(); }));
     $('#h-csv', el).addEventListener('click', () => download(`/api/history.csv?series=${ui.series}&${periodQuery()}`));
+    const alive = viewAlive();
     $('#vn-btn', el).addEventListener('click', async () => {
       $('#vn-body', el).innerHTML = skeleton(2);
       try {
         const v = await api('/api/vnstat');
+        if (!alive()) return;
         if (!v.available) { $('#vn-body', el).innerHTML = `<p class="muted">${esc(v.status.message)}</p>`; return; }
         const row = (label, bw, vn) => `<tr><td>${label}</td><td class="num">${bw.total === null ? '—' : bytes(bw.total)}</td><td class="num">${vn ? bytes(vn.rx + vn.tx) : '—'}</td><td class="num">${vn && bw.total ? `${(((bw.total - (vn.rx + vn.tx)) / (vn.rx + vn.tx || 1)) * 100).toFixed(1)}%` : '—'}</td></tr>`;
         $('#vn-body', el).innerHTML = v.interfaces.map((i) => `<table class="table compact"><caption>Interface ${esc(i.interface)}</caption><thead><tr><th></th><th class="num">BandWatch</th><th class="num">vnStat</th><th class="num">Difference</th></tr></thead><tbody>${row('Today', v.bandwatch.today, i.today)}${row('This month', v.bandwatch.month, i.month)}</tbody></table>`).join('') + `<p class="note subtle">${esc(v.note)}</p>`;
-      } catch (e) { $('#vn-body', el).innerHTML = `<p class="err-text">${esc(e.message)}</p>`; }
+      } catch (e) { if (alive()) $('#vn-body', el).innerHTML = `<p class="err-text">${esc(e.message)}</p>`; }
     });
     const titles = { wan: 'Internet usage (WAN)', dev: 'Usage by all monitored devices', aria2: 'aria2 transfers (estimated payload)' };
     const load = async () => {
       let d;
-      try { d = await api(`/api/history?series=${ui.series}&${periodQuery()}`); } catch (e) { if (e.status !== 401) $('#h-stats', el).innerHTML = errorCard(e, load); return; }
+      try { d = await api(`/api/history?series=${ui.series}&${periodQuery()}`); } catch (e) { if (e.status !== 401 && alive()) $('#h-stats', el).innerHTML = errorCard(e, load); return; }
+      if (!alive()) return;
       $('#h-title', el).textContent = titles[ui.series];
       $('#h-range', el).textContent = `${periodLabel(d.period)} · ${d.chart.resolution === 'hour' ? 'hourly' : d.chart.resolution === 'day' ? 'daily' : 'monthly'} · timezone ${d.period.timezone}`;
       $('#h-cov', el).innerHTML = coverageChip(d.summary.coverage);
@@ -659,9 +680,11 @@ views.health = {
   title: 'System health',
   async mount(el) {
     el.innerHTML = `<div id="hl">${skeleton(6)}</div>`;
+    const alive = viewAlive();
     const load = async () => {
       let h;
-      try { h = await api('/api/health'); } catch (e) { if (e.status !== 401) $('#hl', el).innerHTML = errorCard(e, load); return; }
+      try { h = await api('/api/health'); } catch (e) { if (e.status !== 401 && alive()) $('#hl', el).innerHTML = errorCard(e, load); return; }
+      if (!alive()) return;
       const s = h.system;
       const b = s.board || {};
       const db = h.database;
@@ -719,10 +742,11 @@ views.settings = {
     // leave handlers bound to a replaced form: only the latest mount renders.
     const token = String((Number(el.dataset.mountToken) || 0) + 1);
     el.dataset.mountToken = token;
+    const alive = viewAlive();
     el.innerHTML = skeleton(6);
     let d;
-    try { d = await api('/api/settings'); } catch (e) { if (e.status !== 401 && el.dataset.mountToken === token) el.innerHTML = errorCard(e, () => views.settings.mount(el)); return; }
-    if (el.dataset.mountToken !== token || state.view !== 'settings') return;
+    try { d = await api('/api/settings'); } catch (e) { if (e.status !== 401 && el.dataset.mountToken === token && alive()) el.innerHTML = errorCard(e, () => views.settings.mount(el)); return; }
+    if (el.dataset.mountToken !== token || !alive()) return;
     const s = d.settings;
     const auto = !s['wan.interfaces'].length;
     el.innerHTML = `<form id="settings" class="settings" novalidate>
@@ -800,12 +824,12 @@ views.settings = {
         state.settings = r.settings;
         applyPrefs(r.settings);
         const restart = Object.keys(changes).some((k) => d.restart_required_keys.includes(k));
-        $('#save-msg', el).textContent = restart ? 'Saved. Some changes apply after restarting BandWatch.' : 'Saved.';
+        if (alive()) $('#save-msg', el).textContent = restart ? 'Saved. Some changes apply after restarting BandWatch.' : 'Saved.';
         toast('Settings saved');
-      } catch (err) { toast(err.message, 'error'); $('#save-msg', el).textContent = err.message; }
+      } catch (err) { toast(err.message, 'error'); if (alive()) $('#save-msg', el).textContent = err.message; }
     });
     const saveSecret = async (value) => {
-      try { await api('/api/settings/aria2-secret', { method: 'POST', body: { secret: value } }); toast(value ? 'aria2 secret saved' : 'aria2 secret cleared'); if (state.view === 'settings') views.settings.mount(el); } catch (err) { toast(err.message, 'error'); }
+      try { await api('/api/settings/aria2-secret', { method: 'POST', body: { secret: value } }); toast(value ? 'aria2 secret saved' : 'aria2 secret cleared'); if (alive()) views.settings.mount(el); } catch (err) { toast(err.message, 'error'); }
     };
     const secretInput = $('#a-secret', el);
     $('#a-secret-save', el).addEventListener('click', () => { const v = secretInput.value; if (!v) { toast('Enter the secret first', 'error'); return; } saveSecret(v); });
@@ -895,6 +919,7 @@ async function route() {
   state.cleanup.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
   state.cleanup = [];
   state.view = name;
+  const gen = ++state.routeGen;
   $$('[data-nav]').forEach((a) => {
     const on = a.dataset.nav === name;
     a.classList.toggle('on', on);
@@ -908,7 +933,7 @@ async function route() {
   main.className = `view view-${name}`;
   const tip = $('#tip');
   if (tip) tip.hidden = true;
-  try { await v.mount(main, parts.slice(1)); } catch (e) { if (e.status !== 401) main.innerHTML = errorCard(e, route); }
+  try { await v.mount(main, parts.slice(1)); } catch (e) { if (e.status !== 401 && gen === state.routeGen) main.innerHTML = errorCard(e, route); }
   if (document.activeElement && document.activeElement.closest('[data-nav]')) main.focus({ preventScroll: true });
 }
 

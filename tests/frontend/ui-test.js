@@ -231,6 +231,23 @@ async function watchErrors(page) {
       await page.waitForFunction(() => !document.querySelector('#a-secret-clear'), null, { timeout: 8000 });
     });
 
+    await check('late response from a previous view does not replace the current one', async () => {
+      // Slow /api/overview, leave Overview while it is in flight, then let it land.
+      const slow = async (r) => { await new Promise((res) => setTimeout(res, 1500)); await r.continue().catch(() => {}); };
+      await page.route('**/api/overview', slow);
+      try {
+        await page.goto(`${base}/#/overview`);
+        await page.waitForSelector('#k-today');
+        await page.goto(`${base}/#/settings`);
+        await page.waitForSelector('#a-secret');
+        await page.waitForTimeout(2500);
+        assert(await page.$('#a-secret'), 'settings form was replaced');
+        assert(!(await page.$('#main .error-card')), 'error card shown after navigation');
+      } finally {
+        await page.unroute('**/api/overview', slow);
+      }
+    });
+
     await check('no console errors during interaction', async () => {
       // 4xx responses from the deliberate invalid inputs above are expected.
       const real = errors.filter((e) => !/status of 4\d\d/.test(e));

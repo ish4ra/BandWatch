@@ -31,6 +31,12 @@ First beta candidate for hardware testing. Not yet verified on a physical router
 - aria2: data present when a task is first seen (resumed data, downloads
   completed between polls) is reported as "not counted".
 - Bandix: `/api/version` fallback and pre-0.12.7 long field names.
+- Dashboard: leaving a page while its data was still loading could replace
+  the next page with a "Could not load data" card (seen in WebKit CI);
+  late responses from a previous view are now ignored. The Settings page no
+  longer loses its form when async renders overlap, CSV/JSON downloads work
+  in Safari/WebKit, and live streams are limited to 2 per client so extra
+  tabs cannot stall page loads.
 
 ### Added during the audit
 - Optional HTTPS with a self-signed certificate created by `px5g`.
