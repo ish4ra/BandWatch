@@ -17,14 +17,16 @@ LUCI_PORT=${LUCI_PORT:-18080}
 BW_PORT=8787
 VER=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/bandwatch/__init__.py")
 
-docker build -q --build-arg OPENWRT_TAG="$TAG" -t "$IMG" "$ROOT/tests/openwrt" >/dev/null
+echo "== building the test image"
+timeout 900 docker build -q --build-arg OPENWRT_TAG="$TAG" -t "$IMG" "$ROOT/tests/openwrt" >/dev/null
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker run -d --name "$NAME" --privileged --tmpfs /tmp:exec -p "$LUCI_PORT:80" -p "$BW_PORT:$BW_PORT" \
 	-v "$ROOT/dist:/dist:ro" "$IMG" /sbin/init >/dev/null
 # Wait for procd to finish booting (firewall, netifd, uhttpd, rpcd).
 i=0
-until docker exec "$NAME" sh -c 'pgrep uhttpd >/dev/null && pgrep rpcd >/dev/null && ubus call service list "{\"name\":\"firewall\"}" >/dev/null' 2>/dev/null; do
+echo "== waiting for the container to boot"
+until timeout 20 docker exec "$NAME" sh -c 'pgrep uhttpd >/dev/null && pgrep rpcd >/dev/null && ubus call service list "{\"name\":\"firewall\"}" >/dev/null' 2>/dev/null; do
 	i=$((i + 1)); [ $i -ge 60 ] && break; sleep 1
 done
 sleep 5
@@ -35,7 +37,12 @@ PREFIX=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPPrefixLen}}{
 # times out). In this disposable container only: take eth0 out of the bridge,
 # give it the Docker address as a netifd-managed static interface, and turn the
 # container's own firewall off so hotplug events cannot reload it.
-docker exec "$NAME" sh -c "
+diag() {
+	timeout 30 docker exec "$NAME" sh -c 'ip -o addr; ip -o link; ip route; uci show network; netstat -ltn; nft list ruleset 2>&1 | head -20; ps w | grep -v "\[" | tail -n 40; logread | tail -n 40; cat /tmp/install.log 2>/dev/null' || true
+}
+echo "== configuring the test container network and installing BandWatch"
+# Every phase is time-limited so a hang fails fast and shows where it was.
+timeout 300 docker exec "$NAME" sh -c "
 	/etc/init.d/firewall stop >/dev/null 2>&1; /etc/init.d/firewall disable >/dev/null 2>&1
 	uci -q del_list network.@device[0].ports=eth0
 	uci -q set network.@device[0].bridge_empty=1
@@ -50,15 +57,17 @@ docker exec "$NAME" sh -c "
 	printf 'luci-test-pw\nluci-test-pw\n' | passwd root >/dev/null 2>&1
 	cd /tmp && tar -xzf /dist/bandwatch-$VER-openwrt.tar.gz && cd bandwatch-$VER && sh install.sh >/tmp/install.log 2>&1 || { cat /tmp/install.log; exit 1; }
 	uci add_list bandwatch.main.listen=any && uci commit bandwatch && /etc/init.d/bandwatch restart
-"
+" || { echo "setup/install failed or timed out (exit $?); diagnostics:"; diag; exit 1; }
+echo "== waiting for BandWatch through the port mapping"
 i=0
 until curl -s --max-time 3 -o /dev/null "http://127.0.0.1:$BW_PORT/api/session" -H "Host: 127.0.0.1"; do
 	i=$((i + 1))
 	if [ $i -ge 60 ]; then
 		echo "BandWatch not reachable through the port mapping; diagnostics:"
-		docker exec "$NAME" sh -c 'ip -o addr; ip -o link; ip route; uci show network; netstat -ltn; nft list ruleset 2>&1 | head -20; logread | tail -n 30; cat /tmp/install.log'
+		diag
 		exit 1
 	fi
 	sleep 1
 done
-LUCI_URL="http://127.0.0.1:$LUCI_PORT" LUCI_PASSWORD=luci-test-pw node "$ROOT/tests/openwrt/luci-e2e.js"
+echo "== running the LuCI browser checks"
+LUCI_URL="http://127.0.0.1:$LUCI_PORT" LUCI_PASSWORD=luci-test-pw timeout 300 node "$ROOT/tests/openwrt/luci-e2e.js" || { rc=$?; echo "LuCI checks failed (exit $rc); diagnostics:"; diag; exit "$rc"; }
