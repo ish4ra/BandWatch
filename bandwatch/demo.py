@@ -34,6 +34,7 @@ SCENARIOS = {
     "counter-reset": "Bandix and aria2 restart every 4 minutes (counters reset)",
     "outage": "Bandix and aria2 are unreachable for 60 s every 4 minutes",
     "empty-history": "Fresh installation with no history",
+    "hostile-names": "Security test: device and download names contain HTML/script payloads",
     "db-recovery": "Damaged database file is detected and recovered at start-up",
 }
 
@@ -113,6 +114,12 @@ class DemoPlatform(Platform):
             d["wan"].tx = d["wan"].rx // 10
         self.bandix_epoch = 0
         self.aria = _Aria2Sim(self.rng)
+        self.hostile = scenario == "hostile-names"
+        if self.hostile:
+            # Names are attacker-controlled in real life (DHCP option 12,
+            # torrent metadata); the dashboard must render them as text.
+            self.aria.tasks[0]["name"] = '"><svg onload=alert(1)>.iso'
+            self.aria.tasks[1]["name"] = "<img src=x onerror=alert(2)>"
         self.cpu = [0, 0]
         self.next_event = {"reboot": self.t0 + 300, "reconnect": self.t0 + 180, "counter-reset": self.t0 + 240, "outage": self.t0 + 240}
         self.outage_until = 0.0
@@ -280,17 +287,13 @@ class DemoPlatform(Platform):
         return path in self._files()
 
     def statvfs(self, path):
+        # Only simulated filesystems: never report the host machine's disks
+        # or paths (the demo data directory lives on the "overlay").
         sizes = {"/overlay": (512 * 2**20, 489 * 2**20), "/tmp": (432 * 2**20, 410 * 2**20)}
         if path in sizes:
             total, free = sizes[path]
             return {"total": total, "free": free, "used": total - free}
-        if path == "/":
-            return None
-        try:
-            st = os.statvfs(path)
-            return {"total": st.f_blocks * st.f_frsize, "free": st.f_bavail * st.f_frsize, "used": (st.f_blocks - st.f_bfree) * st.f_frsize}
-        except OSError:
-            return None
+        return None
 
     def which(self, prog):
         if prog == "vnstat":
@@ -396,7 +399,10 @@ class DemoPlatform(Platform):
             spec = d["spec"]
             if spec[0] == "home-nas":
                 continue  # static lease, name comes from /etc/config/dhcp
-            out += "%d %s %s %s 01:%s\n" % (exp, mac, spec[2], spec[0] if spec[0] != "guest-phone" else "*", mac)
+            host = spec[0] if spec[0] != "guest-phone" else "*"
+            if self.hostile and spec[0] == "work-laptop":
+                host = "<img/src=x/onerror=alert(4)>"
+            out += "%d %s %s %s 01:%s\n" % (exp, mac, spec[2], host, mac)
         return out
 
     def _brforward(self):
@@ -441,7 +447,7 @@ class DemoPlatform(Platform):
             r = d["rate"]
             items.append(
                 {
-                    "ip4": spec[2], "ip6": [], "mac": mac, "host": spec[0] if spec[0] != "guest-phone" else "",
+                    "ip4": spec[2], "ip6": [], "mac": mac, "host": ("<script>alert(3)</script>" if self.hostile and spec[0] == "pixel-phone" else spec[0]) if spec[0] != "guest-phone" else "",
                     "conn": spec[3] if spec[3] == "wifi" else "wired", "uplink": spec[4], "w_ch": 0, "w_freq": spec[9],
                     "t_rx_b": d["wan"].rx + d["lan"].rx, "t_tx_b": d["wan"].tx + d["lan"].tx,
                     "t_rx_r": int(r[0] + r[2]), "t_tx_r": int(r[1] + r[3]), "w_rx_l": 0, "w_tx_l": 0,

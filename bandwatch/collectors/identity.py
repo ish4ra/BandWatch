@@ -12,6 +12,8 @@ Passive sources only, read at a slow interval:
 * hostnames, addresses and connection type reported by Bandix
 """
 
+import re
+
 from .. import config as cfgmod
 from .. import platform as plat
 from . import DEGRADED, Status
@@ -111,9 +113,11 @@ class IdentityCollector:
         clients = {}
         objs = self.p.ubus_list("hostapd.*")
         ok = False
-        for obj in objs[:16]:
+        for obj in objs[:8]:
             ifname = obj.split(".", 1)[1] if "." in obj else obj
-            res = self.p.ubus(obj, "get_clients", timeout=3.0)
+            if not re.match(r"^hostapd\.[A-Za-z0-9_.-]{1,32}$", obj):
+                continue
+            res = self.p.ubus(obj, "get_clients", timeout=2.0)
             if not isinstance(res, dict):
                 continue
             ok = True
@@ -282,7 +286,7 @@ class SystemCollector:
         info["cpus"] = sum(1 for ln in (self.p.read_text("/proc/cpuinfo") or "").splitlines() if ln.startswith("processor")) or None
         storage = []
         seen = set()
-        for label, path in (("Overlay", "/overlay"), ("Root", "/"), ("Temporary (RAM)", "/tmp"), ("BandWatch data", self.data_dir)):
+        for label, path in (("Overlay (flash)", "/overlay"), ("Root", "/"), ("Temporary (RAM)", "/tmp"), ("Filesystem holding BandWatch data", self.data_dir)):
             st = self.p.statvfs(path)
             if not st or not st["total"]:
                 continue
@@ -291,6 +295,10 @@ class SystemCollector:
                 continue
             seen.add(sig)
             storage.append({"label": label, "path": path, **st})
+        # Which listed filesystem the database lives on (no extra statvfs).
+        data_st = self.p.statvfs(self.data_dir)
+        data_sig = (data_st["total"], data_st["free"]) if data_st and data_st.get("total") else None
+        info["data_filesystem"] = next((x["label"] for x in storage if (x["total"], x["free"]) == data_sig), None)
         info["storage"] = storage
         info["temperatures"] = self._temperature()
         # BandWatch's own resource use.

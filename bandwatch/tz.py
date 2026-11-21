@@ -349,3 +349,32 @@ def billing_month_start(date, start_day=1):
 
 def utc_offset_at(ts, tz):
     return int(_dt.datetime.fromtimestamp(ts, tz).utcoffset().total_seconds())
+
+
+def offset_label(seconds):
+    sign = "+" if seconds >= 0 else "-"
+    seconds = abs(int(seconds))
+    return "UTC%s%02d:%02d" % (sign, seconds // 3600, seconds % 3600 // 60)
+
+
+def label(tzinfo, desc, now_ts, setting="system", system_config="/etc/config/system"):
+    """Human-friendly timezone label, e.g. 'Asia/Colombo (UTC+05:30)' or 'UTC+05:30'.
+
+    Raw POSIX strings such as '<+0530>-5:30' are never shown; the current UTC
+    offset (including DST) is used instead.
+    """
+    off = offset_label(utc_offset_at(now_ts, tzinfo))
+    if tzinfo is UTC:
+        return "UTC"
+    name = None
+    if desc and "/" in desc and "," not in desc and not desc.startswith("<"):
+        name = desc
+    elif setting in ("", "system"):
+        zonename, _posix = _uci_system_tz(system_config)
+        if zonename and "/" in zonename:
+            name = zonename
+    if name is None and isinstance(tzinfo, PosixTimezone):
+        abbr = _dt.datetime.fromtimestamp(now_ts, tzinfo).tzname()
+        if abbr and abbr.isalpha():
+            name = abbr
+    return "%s (%s)" % (name, off) if name else off

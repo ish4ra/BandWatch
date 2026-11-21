@@ -102,6 +102,10 @@ class ServiceConfig:
         self.demo = kw.get("demo", False)
         self.demo_scenario = kw.get("demo_scenario", "aw1000-cellular")
         self.allowed_hosts = kw.get("allowed_hosts", [])  # extra Host header names
+        self.allow_lan_providers = kw.get("allow_lan_providers", False)
+        self.https = kw.get("https", False)
+        self.tls_cert = kw.get("tls_cert", "/etc/bandwatch/tls/cert.pem")
+        self.tls_key = kw.get("tls_key", "/etc/bandwatch/tls/key.pem")
         self.web_root = kw.get("web_root")
         self.trust_proxy = False
 
@@ -117,6 +121,12 @@ class ServiceConfig:
         if "port" in sec:
             kw["port"] = sec["port"]
         for key in ("data_dir", "run_dir", "auth", "log_level", "lan_interface"):
+            if key in sec:
+                kw[key] = sec[key]
+        for flag in ("allow_lan_providers", "https"):
+            if flag in sec:
+                kw[flag] = sec[flag] in ("1", "yes", "on", "true")
+        for key in ("tls_cert", "tls_key"):
             if key in sec:
                 kw[key] = sec[key]
         if "allowed_hosts" in sec:
@@ -151,6 +161,11 @@ class ServiceConfig:
         self.allowed_networks = nets
         if not os.path.isabs(self.data_dir) or ".." in self.data_dir.split("/"):
             raise ValueError("data_dir must be an absolute path")
+        if not re.match(r"^[A-Za-z0-9_.-]{1,32}$", str(self.lan_interface)):
+            raise ValueError("invalid lan_interface")
+        for path in (self.tls_cert, self.tls_key):
+            if not os.path.isabs(path) or ".." in path.split("/"):
+                raise ValueError("TLS certificate paths must be absolute")
         if self.auth == "none" and any(x not in ("loopback", "127.0.0.1", "::1") for x in self.listen):
             raise ValueError("auth 'none' is only permitted when listening on loopback")
         return self
@@ -196,20 +211,37 @@ def _iface_list(v):
     return list(dict.fromkeys(v))
 
 
+# Provider endpoints (Bandix, aria2) normally run on the router itself. Only
+# loopback endpoints are accepted unless the administrator sets
+# "option allow_lan_providers '1'" in /etc/config/bandwatch. This keeps the
+# authenticated settings API from becoming a way to send requests (and the
+# aria2 secret) to arbitrary hosts on the network.
+ALLOW_LAN_PROVIDERS = False
+
+
 def _local_url(v):
-    if not isinstance(v, str) or not _URL_RE.match(v):
-        raise ValueError("must be an http:// URL (local network endpoints only)")
-    host = v[7:].split("/")[0].rsplit(":", 1)[0].strip("[]")
+    if not isinstance(v, str) or len(v) > 200 or not _URL_RE.match(v):
+        raise ValueError("must be an http:// URL such as http://127.0.0.1:6800/jsonrpc")
+    hostport = v[7:].split("/")[0]
+    if hostport.startswith("["):
+        host, _, rest = hostport[1:].partition("]")
+        port = rest[1:] if rest.startswith(":") else "80"
+    else:
+        host, _, port = hostport.partition(":")
+        port = port or "80"
+    if not port.isdigit() or not 1 <= int(port) <= 65535:
+        raise ValueError("invalid port")
+    if host == "localhost":
+        return v
     try:
         ip = ipaddress.ip_address(host)
-        if not (ip.is_loopback or ip.is_private or ip.is_link_local):
-            raise ValueError("endpoint must be on the router or the local network")
-    except ValueError as exc:
-        if "endpoint" in str(exc):
-            raise
-        if host != "localhost":
-            raise ValueError("use an IP address or 'localhost'") from None
-    return v
+    except ValueError:
+        raise ValueError("use 127.0.0.1, ::1 or localhost") from None
+    if ip.is_loopback:
+        return v
+    if ALLOW_LAN_PROVIDERS and (ip.is_private or ip.is_link_local) and not ip.is_unspecified and not ip.is_multicast:
+        return v
+    raise ValueError("only endpoints on this router (127.0.0.1) are allowed; set option allow_lan_providers '1' to use a LAN host")
 
 
 def _tz(v):

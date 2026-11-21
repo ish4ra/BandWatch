@@ -55,27 +55,30 @@ class WanInterface:
 def detect_from_ubus(dump, iftype):
     """Return candidates [(device, logical, proto, families, is_tunnel)] from a ubus dump."""
     found = {}
-    for itf in (dump or {}).get("interface", []):
-        if not itf.get("up"):
+    itfs = dump.get("interface") if isinstance(dump, dict) else None
+    for itf in itfs if isinstance(itfs, list) else []:
+        if not isinstance(itf, dict) or not itf.get("up"):
             continue
         dev = itf.get("l3_device") or itf.get("device")
-        if not dev or dev == "lo":
+        if not isinstance(dev, str) or not dev or dev == "lo":
             continue
         fams = set()
-        for route in itf.get("route", []) or []:
-            if route.get("mask") == 0 and route.get("target") in ("0.0.0.0", "::"):
+        routes = itf.get("route")
+        for route in routes if isinstance(routes, list) else []:
+            if isinstance(route, dict) and route.get("mask") == 0 and route.get("target") in ("0.0.0.0", "::"):
                 fams.add("ipv6" if ":" in route["target"] else "ipv4")
         if not fams:
             continue
-        proto = itf.get("proto")
+        proto = itf.get("proto") if isinstance(itf.get("proto"), str) else None
         tunnel = iftype(dev) in TUNNEL_TYPES and proto not in PHYSICAL_PROTOS
         entry = found.get(dev)
         if entry:
             entry[3].update(fams)
-            if itf.get("interface") and itf["interface"] not in entry[1].split("+"):
+            if isinstance(itf.get("interface"), str) and itf["interface"] not in entry[1].split("+"):
                 entry[1] = entry[1] + "+" + itf["interface"]
         else:
-            found[dev] = [dev, itf.get("interface") or dev, proto, fams, tunnel]
+            name = itf.get("interface") if isinstance(itf.get("interface"), str) else dev
+            found[dev] = [dev, name, proto, fams, tunnel]
     return [tuple(v) for v in found.values()]
 
 

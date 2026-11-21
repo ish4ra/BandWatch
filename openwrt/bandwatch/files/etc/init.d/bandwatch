@@ -16,7 +16,33 @@ validate_section() {
 		'port:port:8787' \
 		'data_dir:string:/etc/bandwatch' \
 		'user:string:bandwatch' \
+		'https:bool:0' \
+		'tls_cert:string:/etc/bandwatch/tls/cert.pem' \
+		'tls_key:string:/etc/bandwatch/tls/key.pem' \
 		'log_level:or("debug","info","warning","error"):info'
+}
+
+ensure_tls_cert() {
+	local cert="$1" key="$2" owner="$3"
+	if [ ! -s "$cert" ] || [ ! -s "$key" ]; then
+		command -v px5g >/dev/null 2>&1 || { echo "bandwatch: https enabled but px5g is missing (install px5g-mbedtls)" >&2; return 1; }
+		( umask 077; mkdir -p "$(dirname "$cert")" "$(dirname "$key")" )
+		local host
+		host=$(uci -q get system.@system[0].hostname || echo OpenWrt)
+		( umask 077; px5g selfsigned -days 3650 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+			-keyout "$key" -out "$cert" -subj "/CN=$host BandWatch" >/dev/null 2>&1 ) || {
+			echo "bandwatch: could not create a TLS certificate" >&2; return 1; }
+		logger -t bandwatch "created a self-signed TLS certificate in $(dirname "$cert")"
+	fi
+	if [ "$owner" != root ]; then
+		[ -L "$key" ] || chown "$owner:$owner" "$key"
+		[ -L "$cert" ] || chown "$owner:$owner" "$cert"
+		[ -L "$(dirname "$key")" ] || chown "$owner:$owner" "$(dirname "$key")"
+	fi
+	chmod 0600 "$key"
+	chmod 0644 "$cert"
+	[ -L "$(dirname "$key")" ] || chmod 0700 "$(dirname "$key")"
+	return 0
 }
 
 start_bandwatch() {
@@ -33,12 +59,21 @@ start_bandwatch() {
 	mkdir -p "$RUN_DIR/sso" "$data_dir"
 	chmod 0750 "$RUN_DIR" "$data_dir"
 	chmod 0700 "$RUN_DIR/sso"
+	if [ "$https" = 1 ]; then
+		ensure_tls_cert "$tls_cert" "$tls_key" "$run_user" || return 1
+	fi
 	if [ "$run_user" != root ]; then
-		chown -R "$run_user:$run_user" "$RUN_DIR"
-		chown "$run_user:$run_user" "$data_dir"
-		# Hand over files created by root (e.g. 'bandwatch passwd'), but never
-		# follow symlinks or touch anything outside the data directory.
-		find "$data_dir" -maxdepth 1 -type f \( -name '*.json' -o -name 'bandwatch*.db*' \) -exec chown "$run_user:$run_user" {} \;
+		# Only the directories themselves: never chown -R into a directory
+		# the service user can write to (hardlink/symlink tricks).
+		[ -L "$RUN_DIR" ] || chown "$run_user:$run_user" "$RUN_DIR"
+		[ -L "$RUN_DIR/sso" ] || chown "$run_user:$run_user" "$RUN_DIR/sso"
+		[ -L "$data_dir" ] || chown "$run_user:$run_user" "$data_dir"
+		# Hand over files that root created (e.g. "bandwatch passwd"): regular,
+		# root-owned files only. fs.protected_hardlinks=1 (OpenWrt default)
+		# stops the service user from hardlinking files it does not own.
+		find "$data_dir" -maxdepth 1 -type f -user root \
+			\( -name '*.json' -o -name 'bandwatch*.db' -o -name 'bandwatch*.db-wal' -o -name 'bandwatch*.db-shm' \) \
+			-exec chown "$run_user:$run_user" {} \;
 	fi
 
 	procd_open_instance bandwatch

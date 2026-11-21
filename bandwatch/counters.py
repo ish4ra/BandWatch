@@ -105,3 +105,23 @@ class CounterTracker:
         if value <= limit:
             return Delta(value, dt, RESET, True)
         return Delta(0, dt, REBASELINE, False)
+
+
+MAX_COUNTER = (1 << 63) - 1
+
+
+def parse_count(v):
+    """Strictly parse a non-negative integer counter from untrusted JSON.
+
+    Accepts ints and decimal digit strings; rejects floats (incl. inf/NaN),
+    booleans, negatives and values beyond 2**63. Returns None if invalid.
+    """
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        iv = v
+    elif isinstance(v, str) and v.isdigit() and len(v) <= 19:
+        iv = int(v)
+    else:
+        return None
+    return iv if 0 <= iv <= MAX_COUNTER else None

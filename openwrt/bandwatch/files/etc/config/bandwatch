@@ -23,3 +23,12 @@ config bandwatch 'main'
 	# Unprivileged account the daemon runs as (created on install)
 	option user 'bandwatch'
 	option log_level 'info'
+	# Optional HTTPS for the dashboard (needs python3-openssl and px5g).
+	# A self-signed certificate is created on first start; uhttpd/LuCI and
+	# their certificates are not touched.
+	option https '0'
+	#option tls_cert '/etc/bandwatch/tls/cert.pem'
+	#option tls_key '/etc/bandwatch/tls/key.pem'
+	# Provider endpoints (Bandix, aria2) must be on this router unless this
+	# is set to '1' (allows private LAN addresses).
+	option allow_lan_providers '0'

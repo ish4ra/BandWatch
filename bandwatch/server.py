@@ -44,7 +44,7 @@ MIME = {
     ".woff2": "font/woff2",
 }
 
-PRIVATE_NETS = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10", "::1/128", "fc00::/7", "fe80::/10")]
+PRIVATE_NETS = [ipaddress.ip_network(n) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10")]
 
 
 def default_web_root():
@@ -56,8 +56,9 @@ class Server(socketserver.ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
     request_queue_size = 32
 
-    def __init__(self, addr, handler, app):
+    def __init__(self, addr, handler, app, ssl_ctx=None):
         self.app = app
+        self.ssl_ctx = ssl_ctx
         self.address_family = socket.AF_INET6 if ":" in addr[0] else socket.AF_INET
         self.slots = threading.BoundedSemaphore(MAX_WORKERS)
         super().__init__(addr, handler)
@@ -82,6 +83,15 @@ class Server(socketserver.ThreadingMixIn, HTTPServer):
 
     def process_request_thread(self, request, client_address):
         try:
+            if self.ssl_ctx is not None:
+                # Handshake in the worker thread so a slow client cannot
+                # stall accept() for everybody else.
+                try:
+                    request.settimeout(10)
+                    request = self.ssl_ctx.wrap_socket(request, server_side=True)
+                except (OSError, ValueError):
+                    self.shutdown_request(request)
+                    return
             super().process_request_thread(request, client_address)
         finally:
             self.slots.release()
@@ -107,6 +117,7 @@ class App:
             else:
                 self.allowed.append(ipaddress.ip_network(item, strict=False))
         self.extra_hosts = set(h.lower() for h in getattr(service, "allowed_hosts", []) or [])
+        self.tls = False
         self.asset_version = __version__
 
     def client_allowed(self, host):
@@ -171,8 +182,9 @@ def make_handler(app):
             host = _hostname(self.headers.get("Host"))
             ancestors = "'self'"
             if host and app.host_allowed(self.headers.get("Host")):
-                # Allow embedding by LuCI on the same router (ports 80/443).
-                ancestors += " http://%s https://%s" % (host, host)
+                # Allow embedding by LuCI on the same router, on any port
+                # (uhttpd may not use 80/443). Other hosts cannot frame it.
+                ancestors += " http://%s:* https://%s:*" % (host, host)
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
@@ -346,7 +358,8 @@ def make_handler(app):
             return self._json(200, {"ok": True, "csrf": csrf}, {"Set-Cookie": self._cookie_header(token)})
 
         def _cookie_header(self, token):
-            return "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Strict" % (COOKIE, token, SESSION_TTL)
+            secure = "; Secure" if app.tls else ""
+            return "%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Strict%s" % (COOKIE, token, SESSION_TTL, secure)
 
         def _sso(self, params):
             if app.service.auth != "none" and not app.auth.consume_sso(params.get("t", "")):
@@ -506,6 +519,7 @@ def resolve_listen(service, platform):
         if item == "loopback":
             addrs.append("127.0.0.1")
         elif item == "any":
+            log.warning("listening on ALL addresses: make sure the firewall blocks port %d from the WAN", service.port)
             addrs.append("0.0.0.0")
         elif item == "lan":
             ip = None
@@ -523,14 +537,35 @@ def resolve_listen(service, platform):
                 addrs.append("127.0.0.1")
         else:
             addrs.append(item)
-    return list(dict.fromkeys(addrs))
+    addrs = list(dict.fromkeys(addrs))
+    if "0.0.0.0" in addrs:
+        # The wildcard already covers every IPv4 address; binding both would
+        # fail with "address in use".
+        addrs = ["0.0.0.0"] + [a for a in addrs if ":" in a]
+    return addrs
 
 
-def serve(app, addresses, port):
+def make_ssl_context(cert, key):
+    """TLS context for the optional HTTPS mode (requires python3-openssl)."""
+    try:
+        import ssl
+    except ImportError:
+        raise RuntimeError("HTTPS is enabled but the Python ssl module is missing (install python3-openssl)") from None
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    try:
+        ctx.load_cert_chain(cert, key)
+    except (OSError, ssl.SSLError) as exc:
+        raise RuntimeError("cannot load TLS certificate/key (%s)" % (exc.strerror or exc)) from None
+    return ctx
+
+
+def serve(app, addresses, port, ssl_ctx=None):
     servers = []
+    app.tls = ssl_ctx is not None
     for addr in addresses:
         try:
-            srv = Server((addr, port), make_handler(app), app)
+            srv = Server((addr, port), make_handler(app), app, ssl_ctx)
         except OSError as exc:
             if exc.errno in (98, 48):
                 raise RuntimeError("port %d is already in use on %s; choose another port in /etc/config/bandwatch" % (port, addr)) from None
@@ -538,5 +573,5 @@ def serve(app, addresses, port):
         servers.append(srv)
         t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 1.0}, name="http-%s" % addr, daemon=True)
         t.start()
-        log.info("dashboard listening on http://%s:%d/", addr if ":" not in addr else "[%s]" % addr, port)
+        log.info("dashboard listening on %s://%s:%d/", "https" if ssl_ctx else "http", addr if ":" not in addr else "[%s]" % addr, port)
     return servers

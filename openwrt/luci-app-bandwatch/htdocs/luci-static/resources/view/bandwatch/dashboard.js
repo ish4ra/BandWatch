@@ -6,11 +6,13 @@
 var callStatus = rpc.declare({ object: 'luci.bandwatch', method: 'status', expect: { } });
 var callSSO = rpc.declare({ object: 'luci.bandwatch', method: 'sso', expect: { } });
 
+var dashboardScheme = 'http';
+
 function dashboardURL(port, token) {
 	var host = window.location.hostname;
 	if (host.indexOf(':') >= 0 && host.charAt(0) !== '[')
 		host = '[' + host + ']';
-	return 'http://' + host + ':' + port + '/auth/sso?t=' + encodeURIComponent(token);
+	return dashboardScheme + '://' + host + ':' + port + '/auth/sso?t=' + encodeURIComponent(token);
 }
 
 return view.extend({
@@ -35,6 +37,7 @@ return view.extend({
 
 	render: function(st) {
 		st = st || {};
+		dashboardScheme = (st.https === '1') ? 'https' : 'http';
 		var head = E('h2', {}, [ _('BandWatch') ]);
 		var desc = E('div', { 'class': 'cbi-map-descr' },
 			_('Local network traffic monitor. Signing in from LuCI opens the dashboard without a separate password.'));
@@ -56,9 +59,9 @@ return view.extend({
 
 		var body = [ head, desc, E('p', {}, [ button ]) ];
 
-		if (window.location.protocol === 'https:') {
+		if (window.location.protocol === 'https:' && dashboardScheme !== 'https') {
 			body.push(E('div', { 'class': 'alert-message notice' },
-				_('LuCI is using HTTPS while the BandWatch dashboard uses plain HTTP on the LAN, so it cannot be embedded here. Use the button above.')));
+				_('LuCI is using HTTPS while the BandWatch dashboard uses plain HTTP, so it cannot be embedded here. Use the button above, or enable HTTPS for BandWatch (option https in /etc/config/bandwatch).')));
 			return E('div', {}, body);
 		}
 

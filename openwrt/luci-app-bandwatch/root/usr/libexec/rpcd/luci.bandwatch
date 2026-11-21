@@ -28,17 +28,21 @@ case "$1" in
 				running=false
 				/etc/init.d/bandwatch running >/dev/null 2>&1 && running=true
 				enabled=$(uci -q get bandwatch.main.enabled || echo 1)
-				version=$(cat /usr/lib/bandwatch/VERSION 2>/dev/null | tr -cd '0-9A-Za-z.~+_-')
-				printf '{ "running": %s, "enabled": "%s", "port": %s, "version": "%s" }\n' \
-					"$running" "$(echo "$enabled" | tr -cd '01')" "$(json_port)" "$version"
+				version=$(tr -cd '0-9A-Za-z.~+_-' < /usr/lib/bandwatch/VERSION 2>/dev/null)
+				https=$(uci -q get bandwatch.main.https | tr -cd '01')
+				printf '{ "running": %s, "enabled": "%s", "port": %s, "version": "%s", "https": "%s" }\n' \
+					"$running" "$(echo "$enabled" | tr -cd '01')" "$(json_port)" "$version" "${https:-0}"
 				;;
 			sso)
 				token=$(random_token)
-				if [ ${#token} -lt 32 ] || ! [ -d "$RUN_DIR/sso" ]; then
+				# The run directory belongs to the service user: never follow
+				# symlinks it could have planted.
+				if [ ${#token} -lt 32 ] || [ -L "$RUN_DIR" ] || [ -L "$RUN_DIR/sso" ] || ! [ -d "$RUN_DIR/sso" ]; then
 					echo '{ "error": "BandWatch is not running" }'
 					exit 0
 				fi
 				umask 077
+				[ -e "$RUN_DIR/sso/$token" ] && { echo '{ "error": "token collision" }'; exit 0; }
 				: > "$RUN_DIR/sso/$token"
 				owner=$(uci -q get bandwatch.main.user || echo bandwatch)
 				grep -q "^${owner}:" /etc/passwd && chown "$owner:$owner" "$RUN_DIR/sso/$token" 2>/dev/null

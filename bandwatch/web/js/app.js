@@ -561,6 +561,10 @@ views.aria2 = {
             <article class="card kpi"><header>Tasks</header><div class="kpi-val" id="a-tasks"></div><footer id="a-tasks-f"></footer></article>
             <article class="card kpi"><header>Connection</header><div class="kpi-val small" id="a-conn"></div><footer id="a-conn-f"></footer></article>
           </section>
+          <section class="grid two">
+            <article class="card kpi" id="a-today-card"><header>aria2 today</header><div class="kpi-val" id="a-today"></div><footer id="a-today-f"></footer></article>
+            <article class="card kpi" id="a-month-card"><header>aria2 this month</header><div class="kpi-val" id="a-month"></div><footer id="a-month-f"></footer></article>
+          </section>
           <section class="card chart-card"><header class="card-h"><div><h2>Live aria2 speed</h2><p class="sub">Reported by aria2 (getGlobalStat)</p></div></header><div class="chart-wrap"><canvas id="a-live" role="img" aria-label="aria2 live speed"></canvas></div>${legend()}</section>
           <section class="card"><header class="card-h"><h2>Active downloads</h2></header><div id="a-active"></div></section>
           <div class="toolbar" id="a-period"></div>
@@ -581,9 +585,15 @@ views.aria2 = {
       if (!lv) { $('#a-down', el).innerHTML = '<span class="big muted">—</span>'; $('#a-up', el).innerHTML = '<span class="big muted">—</span>'; }
       $('#a-tasks', el).innerHTML = lv ? `<span class="big">${lv.active}<small>active</small></span>` : '<span class="big muted">—</span>';
       $('#a-tasks-f', el).innerHTML = lv ? `<span>${lv.waiting} waiting</span><span>${lv.counts.complete || 0} complete</span><span class="${lv.counts.error ? 'err-text' : ''}">${lv.counts.error || 0} failed</span>` : '';
+      for (const [k, sum] of [['today', d.today], ['month', d.month]]) {
+        $(`#a-${k}`, el).innerHTML = kpiTotal(sum);
+        $(`#a-${k}-f`, el).innerHTML = sum.total === null ? '<span>No aria2 transfers measured in this period yet</span>' :
+          `<span class="down">↓ ${bytes(sum.rx)}</span><span class="up">↑ ${bytes(sum.tx)}</span>${sum.peak_rx !== null ? `<span>peak ${rate(sum.peak_rx)}</span>` : ''}${coverageChip(sum.coverage)}`;
+      }
       $('#a-conn', el).innerHTML = statePill(d.status.state);
       $('#a-conn-f', el).innerHTML = `<span>${esc(d.status.message)}</span>`;
-      $('#a-active', el).innerHTML = lv && lv.tasks.length ? `<ul class="tasks">${lv.tasks.map((t) => `<li><div class="task-h"><b title="${esc(t.name)}">${esc(t.name)}</b><span><span class="down">${rate(t.down)}</span>${t.up ? ` <span class="up">${rate(t.up)}</span>` : ''}</span></div><div class="bar dev"><i data-w="${t.progress === null ? 0 : (t.progress * 100).toFixed(1)}"></i></div><small>${bytes(t.done)} of ${t.total ? bytes(t.total) : 'unknown size'}${t.progress !== null ? ` · ${(t.progress * 100).toFixed(1)}%` : ''}${t.connections ? ` · ${t.connections} connections` : ''}</small></li>`).join('')}</ul>` : '<p class="muted">No active downloads.</p>';
+      const unc = lv && lv.uncounted && lv.uncounted.tasks ? `<p class="note">${icons.info}<span>${lv.uncounted.tasks} task(s) already had ${bytes(lv.uncounted.bytes)} when BandWatch first saw them (resumed data, or downloads that started and finished between two polls). That data is not counted as new transfer.</span></p>` : '';
+      $('#a-active', el).innerHTML = unc + (lv && lv.tasks.length ? `<ul class="tasks">${lv.tasks.map((t) => `<li><div class="task-h"><b title="${esc(t.name)}">${esc(t.name)}</b><span><span class="down">${rate(t.down)}</span>${t.up ? ` <span class="up">${rate(t.up)}</span>` : ''}</span></div><div class="bar dev"><i data-w="${t.progress === null ? 0 : (t.progress * 100).toFixed(1)}"></i></div><small>${bytes(t.done)} of ${t.total ? bytes(t.total) : 'unknown size'}${t.progress !== null ? ` · ${(t.progress * 100).toFixed(1)}%` : ''}${t.connections ? ` · ${t.connections} connections` : ''}</small></li>`).join('')}</ul>` : '<p class="muted">No active downloads.</p>');
       $('#a-range', el).textContent = periodLabel(d.period);
       $('#a-cov', el).innerHTML = coverageChip(d.summary.coverage);
       $('#a-stats', el).innerHTML = statsGrid(d.summary);
@@ -659,6 +669,8 @@ views.health = {
           <ul class="kv"><li><span>Model</span><b>${esc(b.model || '—')}</b></li><li><span>OpenWrt</span><b>${esc(b.release || '—')} ${esc(b.revision || '')}</b></li><li><span>Target</span><b>${esc(b.target || '—')} · ${esc(b.arch || '')}</b></li><li><span>Kernel</span><b>${esc(b.kernel || '—')}</b></li><li><span>CPU cores</span><b>${s.cpus || '—'}</b></li><li><span>Load average</span><b>${s.load ? s.load.map((x) => x.toFixed(2)).join(' · ') : '—'}</b></li><li><span>Uptime</span><b>${duration(s.uptime)}</b></li><li><span>Memory available</span><b>${s.mem_available ? `${bytes(s.mem_available)} of ${bytes(s.mem_total)}` : '—'}</b></li></ul></article>
         <article class="card"><header class="card-h"><h2>Storage</h2></header>
           <ul class="bars">${(s.storage || []).map((x) => `<li><div class="bar-row"><span>${esc(x.label)} <small class="muted">${esc(x.path)}</small></span><b>${bytes(x.used)} / ${bytes(x.total)}</b></div><div class="bar ${x.used / x.total > 0.9 ? 'err' : 'dev'}"><i data-w="${((x.used / x.total) * 100).toFixed(1)}"></i></div></li>`).join('') || '<li class="muted">Storage information unavailable</li>'}</ul>
+          <ul class="kv"><li><span>${icons.db} BandWatch database</span><b id="h-dbsize">${bytes(db.size_bytes)}</b></li><li><span>Stored on</span><b>${esc(s.data_filesystem || (h.demo ? 'simulated overlay' : 'unknown'))}</b></li></ul>
+          <p class="note subtle">Filesystem bars show the whole filesystem; BandWatch itself only uses the database size above.</p>
           <h3 class="h3">BandWatch process</h3>
           <ul class="kv"><li><span>Version</span><b>${esc(h.version)}${h.demo ? ' (demo)' : ''}</b></li><li><span>Service uptime</span><b>${duration(h.uptime_service)}</b></li><li><span>Memory (RSS)</span><b>${s.self_rss ? bytes(s.self_rss) : '—'}</b></li><li><span>CPU</span><b>${s.self_cpu_percent !== undefined ? `${s.self_cpu_percent.toFixed(2)}%` : '—'}</b></li><li><span>Threads</span><b>${s.self_threads || '—'}</b></li><li><span>Timezone</span><b>${esc(h.timezone)}</b></li><li><span>Clock</span><b>${h.clock_trusted ? 'synchronised' : 'waiting for a trustworthy clock (samples are buffered)'}</b></li></ul></article>
       </section>

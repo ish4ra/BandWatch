@@ -71,7 +71,7 @@ def parse_vnstat(doc):
                 d = r.get("date") or {}
                 try:
                     res.append({"y": int(d["year"]), "m": int(d["month"]), "d": int(d.get("day", 1)), "rx": int(r["rx"]) * scale, "tx": int(r["tx"]) * scale})
-                except (KeyError, TypeError, ValueError):
+                except (KeyError, TypeError, ValueError, OverflowError, AttributeError):
                     continue
             return res
 

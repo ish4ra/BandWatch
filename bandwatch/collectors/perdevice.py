@@ -37,11 +37,7 @@ def norm_mac(mac):
 
 
 def _int(v):
-    try:
-        iv = int(v)
-    except (TypeError, ValueError):
-        return None
-    return iv if iv >= 0 else None
+    return counters.parse_count(v)
 
 
 class _DevState:
@@ -133,12 +129,22 @@ class BandixProvider(BaseProvider):
         return self.settings["devices.bandix_url"].rstrip("/") + path
 
     def probe(self, now):
-        try:
-            info = self.p.http_json(self._url("/api/system/info"), timeout=2.0)
-        except (OSError, ValueError) as exc:
-            self.status.set(UNAVAILABLE, "Bandix not reachable at %s (%s)" % (self.settings["devices.bandix_url"], _short(exc)))
+        # /api/system/info is documented for 0.12.x; the upstream LuCI app
+        # falls back to /api/version, so do the same.
+        info = None
+        last_exc = None
+        for path in ("/api/system/info", "/api/version"):
+            try:
+                info = self.p.http_json(self._url(path), timeout=2.0)
+                break
+            except (OSError, ValueError) as exc:
+                last_exc = exc
+        if info is None:
+            self.status.set(UNAVAILABLE, "Bandix not reachable at %s (%s)" % (self.settings["devices.bandix_url"], _short(last_exc)))
             return False
         data = info.get("data") if isinstance(info, dict) else None
+        if not isinstance(data, dict) and isinstance(info, dict):
+            data = info
         version = data.get("version") if isinstance(data, dict) else None
         self.version = str(version)[:32] if version else "unknown"
         self.status.version = self.version
@@ -171,7 +177,7 @@ class BandixProvider(BaseProvider):
             self.status.set(ERROR, "Bandix response has no device list (unsupported version?)")
             return None
         swap = self.settings["devices.bandix_direction"] == "tx_is_download"
-        has_wan = any(isinstance(d, dict) and "w_rx_b" in d for d in items)
+        has_wan = any(isinstance(d, dict) and ("w_rx_b" in d or "wan_rx_bytes" in d) for d in items)
         self.capabilities = {"wan_split": has_wan or not items, "lan": True, "rates": True}
         dt = now - self.last_poll if self.last_poll is not None else None
         dt_ok = dt is not None and dt <= max(15.0, 4 * self.settings["devices.poll_interval"])
@@ -185,10 +191,12 @@ class BandixProvider(BaseProvider):
             mac = norm_mac(item.get("mac"))
             if not mac:
                 continue
-            wrx, wtx = _int(item.get("w_rx_b")), _int(item.get("w_tx_b"))
-            lrx, ltx = _int(item.get("l_rx_b")), _int(item.get("l_tx_b"))
-            rwrx, rwtx = _int(item.get("w_rx_r")), _int(item.get("w_tx_r"))
-            rlrx, rltx = _int(item.get("l_rx_r")), _int(item.get("l_tx_r"))
+            # Short keys since Bandix 0.12.7; long names as a fallback for
+            # older releases (best effort, unverified).
+            wrx, wtx = _int(_pick(item, "w_rx_b", "wan_rx_bytes")), _int(_pick(item, "w_tx_b", "wan_tx_bytes"))
+            lrx, ltx = _int(_pick(item, "l_rx_b", "lan_rx_bytes")), _int(_pick(item, "l_tx_b", "lan_tx_bytes"))
+            rwrx, rwtx = _int(_pick(item, "w_rx_r", "wan_rx_rate")), _int(_pick(item, "w_tx_r", "wan_tx_rate"))
+            rlrx, rltx = _int(_pick(item, "l_rx_r", "lan_rx_rate")), _int(_pick(item, "l_tx_r", "lan_tx_rate"))
             if swap:
                 wrx, wtx, lrx, ltx = wtx, wrx, ltx, lrx
                 rwrx, rwtx, rlrx, rltx = rwtx, rwrx, rltx, rlrx
@@ -198,12 +206,12 @@ class BandixProvider(BaseProvider):
                 totals[1] += res["wtx"].bytes
                 any_valid = True
             snap = DeviceSnapshot(mac)
-            snap.ip4 = _str(item.get("ip4"), 45)
+            snap.ip4 = _str(_pick(item, "ip4", "ip"), 45)
             ip6 = item.get("ip6")
             if isinstance(ip6, list):
                 ip6 = next((a for a in ip6 if isinstance(a, str) and not a.lower().startswith("fe80")), ip6[0] if ip6 else None)
             snap.ip6 = _str(ip6, 45)
-            snap.host = _str(item.get("host"), 64)
+            snap.host = _str(_pick(item, "host", "hostname"), 64)
             snap.conn = _str(item.get("conn"), 16)
             snap.uplink = _str(item.get("uplink"), 16)
             snap.freq = _int(item.get("w_freq")) or None
@@ -286,6 +294,13 @@ class NlbwmonProvider(BaseProvider):
         self.status.set(DEGRADED, "nlbwmon (conntrack based): %d devices; rates are %d-second averages; offloaded flows may be under-counted" % (len(snaps), self.settings["devices.poll_interval"]))
         self.status.last_ok = now
         return snaps
+
+
+def _pick(item, *names):
+    for n in names:
+        if n in item:
+            return item[n]
+    return None
 
 
 def _str(v, limit):

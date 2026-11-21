@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-// End-to-end dashboard checks against the demo server (Playwright, Chromium).
+// End-to-end dashboard checks against the demo server (Playwright).
 //
-//   node tests/frontend/ui-test.js            (starts its own demo servers)
+//   node tests/frontend/ui-test.js                     (Chromium, full suite)
+//   BROWSER=firefox node tests/frontend/ui-test.js     (core checks)
+//   BROWSER=webkit  node tests/frontend/ui-test.js     (core checks)
 //
 // Checks: every view renders without console errors or CSP violations, no
 // horizontal overflow at phone/tablet/desktop widths, navigation and
@@ -9,7 +11,10 @@
 // editing, CSV download, login flow with password auth, reduced motion,
 // empty states (no Bandix / no aria2) and the LuCI view file syntax.
 
-const { chromium } = require('playwright');
+const playwright = require('playwright');
+
+const BROWSER = process.env.BROWSER || 'chromium';
+const FULL = BROWSER === 'chromium';
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -60,7 +65,7 @@ function startDemo(port, args = []) {
 }
 
 const VIEWS = ['overview', 'devices', 'aria2', 'history', 'health', 'settings'];
-const SIZES = [[390, 844, 'phone'], [820, 1180, 'tablet'], [1440, 900, 'desktop']];
+const SIZES = [[320, 640, 'small-phone'], [390, 844, 'phone'], [820, 1180, 'tablet'], [1440, 900, 'desktop']];
 
 async function watchErrors(page) {
   const errors = [];
@@ -75,8 +80,10 @@ async function watchErrors(page) {
   const pw = startDemo(18902, ['--auth', 'password', '--password', 'ui-test-password', '--listen', '127.0.0.1']);
   const nob = startDemo(18903, ['--scenario', 'no-bandix', '--days', '0']);
   const noa = startDemo(18904, ['--scenario', 'no-aria2', '--days', '0']);
-  servers.push(main, pw, nob, noa);
-  const browser = await chromium.launch();
+  const hostile = startDemo(18905, ['--scenario', 'hostile-names', '--days', '2']);
+  servers.push(main, pw, nob, noa, hostile);
+  const browser = await playwright[BROWSER].launch();
+  console.log(`Browser: ${BROWSER} ${browser.version()}`);
   try {
     await Promise.all(servers.map((s) => s.ready()));
     const base = 'http://127.0.0.1:18901';
@@ -118,7 +125,7 @@ async function watchErrors(page) {
       assert(pill.includes('live'), `live pill: ${pill}`);
     });
 
-    await check('keyboard navigation reaches sidebar links', async () => {
+    if (FULL) await check('keyboard navigation reaches sidebar links', async () => {
       await page.keyboard.press('Tab');
       await page.keyboard.press('Tab');
       const tag = await page.evaluate(() => document.activeElement && (document.activeElement.getAttribute('href') || document.activeElement.className));
@@ -264,6 +271,84 @@ async function watchErrors(page) {
       await p5.waitForSelector('.empty', { timeout: 10000 });
       assert((await p5.textContent('.empty h3')).includes('aria2'));
       await c5.close();
+    });
+
+    await check('XSS: hostile device and download names render as text', async () => {
+      const c6 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const p6 = await c6.newPage();
+      let dialogs = 0;
+      p6.on('dialog', async (d) => { dialogs++; await d.dismiss(); });
+      for (const v of ['overview', 'devices', 'aria2']) {
+        await p6.goto(`http://127.0.0.1:18905/#/${v}`);
+        await p6.waitForSelector('#main .card', { timeout: 10000 });
+        await p6.waitForTimeout(1800);
+      }
+      await p6.goto('http://127.0.0.1:18905/#/devices');
+      await p6.waitForSelector('table.devices tbody tr');
+      const injected = await p6.$$('main img, main svg[onload], main script');
+      const text = await p6.textContent('#main');
+      await c6.close();
+      assert(dialogs === 0, `${dialogs} script dialog(s) executed`);
+      assert(injected.length === 0, 'payload elements were created');
+      assert(text.includes('<img/src=x/onerror=alert(4)>') || text.includes('<script>alert(3)</script>'), 'payload text not shown literally');
+    });
+
+    await check('light theme uses the light palette', async () => {
+      const c7 = await browser.newContext({ colorScheme: 'light' });
+      const p7 = await c7.newPage();
+      await p7.addInitScript(() => localStorage.setItem('bw.theme', 'light'));
+      await p7.goto(`${base}/#/overview`);
+      await p7.waitForSelector('#main .card');
+      const bg = await p7.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      const theme = await p7.getAttribute('html', 'data-theme');
+      await c7.close();
+      assert(theme === 'light' && bg === 'rgb(244, 247, 251)', `${theme} ${bg}`);
+    });
+
+    await check('aria2 page shows Today and This month cards', async () => {
+      const c8 = await browser.newContext();
+      const p8 = await c8.newPage();
+      await p8.goto(`${base}/#/aria2`);
+      await p8.waitForSelector('#a-today .big', { timeout: 10000 });
+      const t = await p8.textContent('#a-today-card');
+      const m = await p8.textContent('#a-month-card');
+      await c8.close();
+      assert(/today/i.test(t) && /month/i.test(m), `${t} | ${m}`);
+    });
+
+    await check('health page shows no host storage or paths in demo mode', async () => {
+      const c9 = await browser.newContext();
+      const p9 = await c9.newPage();
+      await p9.goto(`${base}/#/health`);
+      await p9.waitForSelector('#h-dbsize', { timeout: 10000 });
+      const t = await p9.textContent('#main');
+      await c9.close();
+      assert(!t.includes('Filesystem holding BandWatch data'), 'host data filesystem listed');
+      assert(!t.includes('bw-ui-'), 'host demo data path shown');
+      assert(t.includes('BandWatch database'), 'database size line missing');
+      assert(!t.includes('<+0530>'), 'raw POSIX timezone shown');
+    });
+
+    if (FULL) await check('device page: custom date range', async () => {
+      const c10 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const p10 = await c10.newPage();
+      await p10.goto(`${base}/#/devices`);
+      await p10.waitForSelector('table.devices tbody tr');
+      await p10.click('table.devices tbody tr');
+      await p10.waitForSelector('#dd-stats .stats', { timeout: 10000 });
+      await p10.click('#dd-period .seg[data-p="custom"]');
+      const end = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const start = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      await p10.fill('#dd-period input[name="start"]', start);
+      await p10.fill('#dd-period input[name="end"]', end);
+      await p10.click('#dd-period .custom-range button');
+      await p10.waitForTimeout(1500);
+      const range = await p10.textContent('#dd-range');
+      const total = await p10.textContent('#dd-stats');
+      await p10.click('#dd-period .seg[data-p="today"]');
+      await c10.close();
+      assert(range.includes('–'), `range label: ${range}`);
+      assert(/GB|MB|kB/.test(total), 'no totals for custom range');
     });
 
     await check('LuCI view file parses', async () => {

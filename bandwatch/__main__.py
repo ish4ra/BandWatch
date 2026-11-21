@@ -34,7 +34,7 @@ def _wait_for_signal(stop):
 def _start(service, platform, engine_factory=None):
     from .auth import Auth
     from .engine import Engine
-    from .server import App, resolve_listen, serve
+    from .server import App, make_ssl_context, resolve_listen, serve
 
     engine = (engine_factory or Engine)(service, platform)
     auth = Auth(service.data_dir, service.run_dir, service.auth)
@@ -43,7 +43,8 @@ def _start(service, platform, engine_factory=None):
     app = App(engine, auth, service)
     addrs = resolve_listen(service, platform)
     try:
-        servers = serve(app, addrs, service.port)
+        ssl_ctx = make_ssl_context(service.tls_cert, service.tls_key) if service.https else None
+        servers = serve(app, addrs, service.port, ssl_ctx)
     except RuntimeError as exc:
         log.error("%s", exc)
         engine.store.close()

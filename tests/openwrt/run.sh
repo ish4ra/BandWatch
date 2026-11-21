@@ -19,6 +19,8 @@ FAILS=0
 
 pass() { echo "PASS: $*"; }
 failt() { echo "FAIL: $*"; FAILS=$((FAILS + 1)); }
+# TLS readiness probe (python is used because BusyBox wget may lack TLS).
+WAIT_UP_TLS='i=0; until python3 -c "import ssl,urllib.request as u; c=ssl.create_default_context(); c.check_hostname=False; c.verify_mode=ssl.CERT_NONE; u.urlopen(u.Request(\"https://127.0.0.1:8787/api/session\", headers={\"Host\": \"127.0.0.1\"}), context=c, timeout=3)" 2>/dev/null; do i=$((i+1)); [ $i -ge 30 ] && exit 1; sleep 1; done'
 # Readiness probe used after package installs (service start time varies by machine).
 WAIT_UP='i=0; until /etc/init.d/bandwatch running && wget -q -T 2 -O /dev/null http://127.0.0.1:8787/api/session; do i=$((i+1)); [ $i -ge 30 ] && exit 1; sleep 1; done'
 
@@ -54,6 +56,7 @@ check "LuCI rpcd status" "ubus call luci.bandwatch status | grep -q '\"running\"
 check "LuCI SSO sign-in" "T=\$(ubus call luci.bandwatch sso | jsonfilter -e @.token); python3 -c 'import http.client,sys; c=http.client.HTTPConnection(\"127.0.0.1\",8787); c.request(\"GET\",\"/auth/sso?t=\"+sys.argv[1]); r=c.getresponse(); raise SystemExit(0 if r.status==303 and \"bw_session=\" in (r.getheader(\"Set-Cookie\") or \"\") else 1)' \$T"
 check "password login" "echo 'integration-pass-1' | bandwatch passwd --stdin >/dev/null && python3 -c 'import http.client,json; c=http.client.HTTPConnection(\"127.0.0.1\",8787); c.request(\"POST\",\"/api/login\",body=json.dumps({\"password\":\"integration-pass-1\"}),headers={\"Content-Type\":\"application/json\",\"Host\":\"192.168.1.1\"}); raise SystemExit(0 if c.getresponse().status==200 else 1)'"
 check "bandwatch check" "bandwatch check --running"
+check "optional HTTPS: certificate, permissions, TLS" "uci set bandwatch.main.https=1 && uci commit bandwatch && /etc/init.d/bandwatch restart && $WAIT_UP_TLS && ls -ld /etc/bandwatch/tls | grep -q '^drwx------' && ls -l /etc/bandwatch/tls/key.pem | grep -q '^-rw-------' && uci set bandwatch.main.https=0 && uci commit bandwatch && /etc/init.d/bandwatch restart && $WAIT_UP"
 check "upgrade keeps password and makes a backup" "cd /tmp/bandwatch-$VER && sh install.sh | grep -q 'Previous version backup' && test -s /etc/bandwatch/auth.json"
 check "rollback on failure" "cd /tmp/bandwatch-$VER && ! BW_INSTALL_TEST_FAIL=1 sh install.sh >/tmp/rb.log 2>&1; grep -q 'rolled back' /tmp/rb.log && /etc/init.d/bandwatch running"
 check "port conflict detected" "python3 -c 'import socket,time; s=socket.socket(); s.bind((\"127.0.0.1\",8799)); s.listen(); time.sleep(4)' & sleep 1; cd /tmp/bandwatch-$VER && ! sh install.sh --port 8799 --dry-run"

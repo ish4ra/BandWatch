@@ -102,6 +102,16 @@ def new_bucket():
     return [0, 0, 0, None, None, None, None, 0, 0]
 
 
+def _merge_into(dst, src):
+    for key, bucket in src.items():
+        cur = dst.get(key)
+        if cur is None:
+            dst[key] = list(bucket)
+        else:
+            _merge_bucket(cur, bucket)
+            cur[COV] = min(cur[COV], 60000)
+
+
 def accumulate(pending, series, key, end, dt, rx, tx, rate_ok=True, est=False, count=True):
     """Add bytes measured over ``dt`` seconds ending at ``end`` into minute buckets.
 
@@ -153,8 +163,12 @@ class Store:
         self.path = path
         self.mode = mode
         self.tz = tzinfo or tzmod.UTC
-        self.lock = threading.RLock()
+        self.lock = threading.RLock()  # serialises use of the SQLite connection
+        # Sample accumulation has its own lock so collectors never wait for
+        # database I/O (a flush can take a while on slow flash).
+        self.plock = threading.Lock()
         self.pending = {}  # (s, k, minute_t) -> bucket list
+        self.inflight = {}  # buckets currently being written by flush()
         self.recovered_from = None
         self.journal_mode = None
         self.last_flush = None
@@ -352,12 +366,12 @@ class Store:
 
     def add(self, series, key, wall_end, dt, rx, tx, rate_ok=True, est=False, count=True):
         """Add ``rx``/``tx`` bytes measured over ``dt`` seconds ending at ``wall_end``."""
-        with self.lock:
+        with self.plock:
             accumulate(self.pending, series, key, wall_end, dt, rx, tx, rate_ok, est, count)
 
     def merge_pending(self, buckets, shift=0):
         """Merge externally accumulated minute buckets (optionally time-shifted)."""
-        with self.lock:
+        with self.plock:
             for (s, k, t), bk in buckets.items():
                 minute = int((t + shift) // 60) * 60
                 cur = self.pending.get((s, k, minute))
@@ -369,30 +383,50 @@ class Store:
 
     # -- flushing and roll-ups ----------------------------------------------------
 
-    def flush(self, now=None, retention=None):
-        """Write pending buckets, update roll-ups and apply retention."""
+    def begin_flush(self):
+        """Move pending buckets to the in-flight set (cheap; call under any
+        caller lock that must be consistent with the persisted data)."""
+        with self.plock:
+            if self.inflight:
+                _merge_into(self.inflight, self.pending)
+            else:
+                self.inflight = self.pending
+            self.pending = {}
+
+    def complete_flush(self, now=None, retention=None):
+        """Write the in-flight buckets, update roll-ups and apply retention.
+
+        Queries keep seeing in-flight buckets until the transaction commits;
+        the in-flight set is cleared while the connection lock is still held,
+        so nothing is ever counted twice.
+        """
         now = now or time.time()
         with self.lock:
-            pending, self.pending = self.pending, {}
+            with self.plock:
+                batch = self.inflight
             try:
-                self._write(pending)
+                self._write(batch)
                 if retention:
                     self._prune(now, retention)
-                self.last_flush = now
-                self.last_flush_error = None
-                self.flush_count += 1
             except sqlite3.Error as exc:
-                # Put the data back so it is retried on the next flush.
-                for key, bucket in pending.items():
-                    cur = self.pending.get(key)
-                    if cur is None:
-                        self.pending[key] = bucket
-                    else:
-                        _merge_bucket(cur, bucket)
+                # Keep the data in memory so it is retried on the next flush.
+                with self.plock:
+                    _merge_into(self.pending, self.inflight)
+                    self.inflight = {}
                 self.last_flush_error = str(exc)
                 log.error("database flush failed: %s", exc)
                 return False
+            with self.plock:
+                self.inflight = {}
+            self.last_flush = now
+            self.last_flush_error = None
+            self.flush_count += 1
         return True
+
+    def flush(self, now=None, retention=None):
+        """Write all pending buckets (begin + complete)."""
+        self.begin_flush()
+        return self.complete_flush(now, retention)
 
     def _write(self, pending):
         if not pending:
@@ -494,9 +528,11 @@ class Store:
         """Unflushed minute rows as (k, t, bucket) within [a, b)."""
         out = []
         a = int(a) // 60 * 60
-        for (s, k, t), bucket in self.pending.items():
-            if s == series and (key is None or k == key) and a <= t < b:
-                out.append((k, t, bucket))
+        with self.plock:
+            for source in (self.inflight, self.pending):
+                for (s, k, t), bucket in source.items():
+                    if s == series and (key is None or k == key) and a <= t < b:
+                        out.append((k, t, list(bucket)))
         return out
 
     def _db_rows(self, series, key, a, b):
@@ -532,9 +568,16 @@ class Store:
                 day += _ONE_DAY
             if split >= b:
                 return rows
-        # Whole quarters come from m15; unaligned edges from the 1-minute tier.
+        # Whole quarters come from m15; unaligned edges from the 1-minute tier
+        # while it still holds them (otherwise the whole edge quarter is used,
+        # which can only include data from just outside the range).
         qa = -(-int(split) // 900) * 900
         qb = int(b) // 900 * 900
+        m1_start = self.conn.execute("SELECT min(t) FROM m1 WHERE s = ?" + kfilter, (series,) + kargs).fetchone()[0]
+        if qa != split and (m1_start is None or m1_start > split):
+            qa = int(split) // 900 * 900
+        if qb != b and (m1_start is None or m1_start > qb):
+            qb = -(-int(b) // 900) * 900
         if qa >= qb:
             qa = qb = None
         for lo, hi in ((split, qa), (qb, b)) if qa is not None else ((split, b),):
@@ -595,7 +638,8 @@ class Store:
             rows = self.conn.execute("SELECT DISTINCT k FROM m15 WHERE s = ? AND t >= ? AND t < ?", (series, a, b)).fetchall()
         keys = {r[0] for r in rows}
         with self.lock:
-            keys.update(k for (s, k, t) in self.pending if s == series and a <= t < b)
+            with self.plock:
+                keys.update(k for (s, k, t) in list(self.pending) + list(self.inflight) if s == series and a <= t < b)
         return keys
 
     def first_data_time(self):
@@ -608,8 +652,10 @@ class Store:
         if d and d[0] is not None:
             cands.append(tzmod.local_midnight(tzmod.key_to_date(d[0]), self.tz))
         with self.lock:
-            if self.pending:
-                cands.append(min(t for (_s, _k, t) in self.pending))
+            with self.plock:
+                ts = [t for (_s, _k, t) in list(self.pending) + list(self.inflight)]
+            if ts:
+                cands.append(min(ts))
         return min(cands) if cands else None
 
     # -- devices ----------------------------------------------------------------
@@ -691,7 +737,7 @@ class Store:
             "journal_mode": self.journal_mode,
             "last_flush": self.last_flush,
             "last_flush_error": self.last_flush_error,
-            "pending_buckets": len(self.pending),
+            "pending_buckets": len(self.pending) + len(self.inflight),
             "recovered_from": os.path.basename(self.recovered_from) if self.recovered_from else None,
             "schema_version": int(self.meta("schema_version", "0")),
             "mode": self.mode,

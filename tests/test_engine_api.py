@@ -29,7 +29,8 @@ def run_for(eng, seconds):
     eng.start()
     time.sleep(seconds)
     eng.stop_event.set()
-    eng.thread.join(5)
+    for t in (eng.thread, eng.aux_thread):
+        t.join(5)
 
 
 def test_engine_collects_and_flushes(tmp_path):

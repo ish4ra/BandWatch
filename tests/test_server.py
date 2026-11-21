@@ -68,6 +68,7 @@ def test_static_and_security_headers(srv):
     assert r.status == 200 and b"BandWatch" in body
     csp = r.getheader("Content-Security-Policy")
     assert "default-src 'self'" in csp and "script-src 'self'" in csp and "unsafe-inline" not in csp
+    assert "frame-ancestors 'self' http://127.0.0.1:* https://127.0.0.1:*" in csp
     assert r.getheader("X-Content-Type-Options") == "nosniff"
     assert r.getheader("Server") == "BandWatch"
 

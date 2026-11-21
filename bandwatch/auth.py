@@ -108,6 +108,9 @@ class Auth:
         self.sessions = {}
         self.failures = {}
         self.lock = threading.Lock()
+        # At most two password verifications at a time so unauthenticated
+        # login floods cannot pin the router's CPU.
+        self.verify_slots = threading.BoundedSemaphore(2)
 
     # -- password management -------------------------------------------------
 
@@ -137,7 +140,12 @@ class Auth:
         stored = self._load().get("password")
         if not stored or not isinstance(password, str) or len(password) > 256:
             return False
-        return verify_password(password, stored)
+        if not self.verify_slots.acquire(timeout=10):
+            return False
+        try:
+            return verify_password(password, stored)
+        finally:
+            self.verify_slots.release()
 
     # -- rate limiting -------------------------------------------------------------
 

@@ -26,6 +26,8 @@ done
 DATA_DIR=$(uci -q get bandwatch.main.data_dir 2>/dev/null || echo /etc/bandwatch)
 case "$DATA_DIR" in
 	/|/etc|/usr|/tmp|/overlay|/root|/www|/mnt|"") echo "refusing to purge suspicious data_dir '$DATA_DIR'" >&2; exit 1 ;;
+	*bandwatch*) ;;
+	*) echo "refusing to purge '$DATA_DIR': its name does not contain 'bandwatch' (delete it manually)" >&2; exit 1 ;;
 esac
 
 if [ "$PURGE" = 1 ] && [ "$YES" != 1 ]; then

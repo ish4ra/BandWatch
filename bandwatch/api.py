@@ -45,7 +45,7 @@ def _chart(engine, series, key, a, b, coverage_key=None):
 
 
 def _period_meta(name, a, b, da, db, engine):
-    return {"name": name, "start": da.isoformat(), "end": db.isoformat(), "start_ts": a, "end_ts": b, "timezone": engine.tz_desc}
+    return {"name": name, "start": da.isoformat(), "end": db.isoformat(), "start_ts": a, "end_ts": b, "timezone": engine.tz_label}
 
 
 def overview(engine, params=None):
@@ -105,7 +105,7 @@ def overview(engine, params=None):
         "database": {k: v for k, v in engine.store.status().items() if k in ("last_flush", "last_flush_error", "size_bytes", "recovered_from", "journal_mode")},
         "quota": engine.quota_status(now),
         "wan_interfaces": engine.wan.status.extra.get("interfaces", []),
-        "timezone": engine.tz_desc,
+        "timezone": engine.tz_label,
     }
 
 
@@ -220,7 +220,13 @@ def aria2(engine, params):
     status = engine.aria2.status.as_dict()
     live = engine.aria2.live
     recent = engine.store.recent_tasks(40)
+    first = engine.first_ts()
+    ta, tb, _, _ = tzmod.period_bounds("today", now, engine.tz)
+    ma, mb, mda, mdb = tzmod.period_bounds("this_month", now, engine.tz)
     return {
+        "today": analytics.summary(engine.store, "aria2", "*", ta, tb, now, first),
+        "month": analytics.summary(engine.store, "aria2", "*", ma, mb, now, first),
+        "month_period": {"start": mda.isoformat(), "end": (mdb - analytics.ONE_DAY).isoformat()},
         "available": live is not None,
         "status": status,
         "secret_configured": engine.secrets.has("aria2_secret"),
@@ -231,7 +237,7 @@ def aria2(engine, params):
         "chart": _chart(engine, "aria2", "*", a, b),
         "recent": recent,
         "events": [dict(zip(("t", "level", "source", "kind", "message"), e)) for e in engine.recent_events if e[2] == "aria2"][:20],
-        "note": "aria2 figures are payload bytes reported by aria2 (an estimate of its share of WAN traffic), not a separate WAN measurement.",
+        "note": "aria2 figures are payload bytes reported by aria2 (an estimate of its share of WAN traffic), not a separate WAN measurement. Data that already existed when BandWatch first saw a task is not counted.",
     }
 
 
@@ -249,11 +255,11 @@ def settings_get(engine, params=None):
             "port": engine.service.port,
             "listen": engine.service.listen,
             "auth": engine.service.auth,
-            "data_dir": engine.service.data_dir,
+            "data_dir": engine.data_dir_label,
             "demo": engine.service.demo,
         },
         "interfaces": names,
-        "timezone_resolved": engine.tz_desc,
+        "timezone_resolved": engine.tz_label,
         "wan_detected": [i["device"] for i in engine.wan.status.extra.get("interfaces", [])],
         "version": __version__,
     }
@@ -340,7 +346,7 @@ def export(engine, params):
         for r in rows:
             w.writerow([r["date"], r["series"], r["key"], r["name"] or "", r["download_bytes"], r["upload_bytes"], r["measured_seconds"]])
         return out.getvalue(), "bandwatch-export-%s-%s.csv" % (da.isoformat(), db.isoformat())
-    return {"version": __version__, "simulated": engine.service.demo, "timezone": engine.tz_desc, "period": _period_meta(name, a, b, da, db, engine), "rows": rows}, None
+    return {"version": __version__, "simulated": engine.service.demo, "timezone": engine.tz_label, "period": _period_meta(name, a, b, da, db, engine), "rows": rows}, None
 
 
 def events(engine, params):

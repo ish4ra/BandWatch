@@ -46,10 +46,8 @@ def task_name(task):
 
 
 def _i(v):
-    try:
-        return max(0, int(v))
-    except (TypeError, ValueError):
-        return 0
+    iv = counters.parse_count(v)
+    return 0 if iv is None else iv
 
 
 class _Task:
@@ -82,6 +80,12 @@ class Aria2Collector:
         self.events = []
         self._removed = []
         self.version_known = False
+        # Data that existed when a task was first seen is never counted as
+        # transfer. After the first poll of a session such data is either
+        # resumed/pre-existing or a short download that started and finished
+        # between polls; it is reported here instead of being guessed.
+        self.session_polls = 0
+        self.uncounted = {"tasks": 0, "bytes": 0}
         self.max_rate = settings["wan.max_rate_mbps"] * 125_000
         self.enabled = settings["aria2.mode"] != "off"
         if not self.enabled:
@@ -183,7 +187,9 @@ class Aria2Collector:
             "stopped": _i(stat.get("numStoppedTotal") or stat.get("numStopped")),
             "counts": counts,
             "tasks": self._live_tasks(active or []),
+            "uncounted": dict(self.uncounted),
         }
+        self.session_polls += 1
         # Forget tasks that aria2 no longer reports (purged/removed results).
         for gid in [g for g in self.tasks if g not in seen]:
             t = self.tasks.pop(gid)
@@ -204,6 +210,7 @@ class Aria2Collector:
 
     def _new_session(self, sid, wall):
         self.session = sid
+        self.session_polls = 0
         for t in self.tasks.values():
             t.done = t.up = None  # re-baseline; never count jumps across sessions
         self.last_poll = None
@@ -214,6 +221,9 @@ class Aria2Collector:
         if t is None:
             t = self.tasks[gid] = _Task(gid)
             t.first_seen = wall
+            if self.session_polls > 0 and done > 0:
+                self.uncounted["tasks"] += 1
+                self.uncounted["bytes"] += done
         t.last_seen = wall
         if t.status != status:
             if status == "complete" and t.status is not None:

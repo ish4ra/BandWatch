@@ -43,6 +43,7 @@ class Engine:
     def __init__(self, service, platform, settings=None, secrets=None, store=None):
         self.service = service
         self.p = platform
+        cfgmod.ALLOW_LAN_PROVIDERS = bool(getattr(service, "allow_lan_providers", False))
         os.makedirs(service.data_dir, mode=0o750, exist_ok=True)
         self.settings = settings or cfgmod.Settings(os.path.join(service.data_dir, "settings.json"))
         self.secrets = secrets or cfgmod.SecretStore(os.path.join(service.data_dir, "secrets.json"))
@@ -55,10 +56,16 @@ class Engine:
         self.cond = threading.Condition(self.lock)
         self.stop_event = threading.Event()
         self.thread = None
+        self.aux_thread = None
+        self.emit_lock = threading.Lock()  # pre-clock buffer + emit ordering
+        self.wan_lock = threading.Lock()  # WAN sample vs. flush checkpoint snapshot
+        self.flush_lock = threading.Lock()
+        self.heartbeat = {"wan": None, "providers": None}
         self.seq = 0
         self.started_wall = time.time()
         self.started_mono = platform.monotonic()
         self.pending_events = []
+        self.events_lock = threading.Lock()
         self.recent_events = collections.deque(maxlen=50)
         self.clock_trusted = False
         self.prebuffer = {}
@@ -110,23 +117,27 @@ class Engine:
             up = self._uptime()
             if wall >= MIN_VALID_WALL and (up is None or up >= CLOCK_TRUST_UPTIME or self.service.demo):
                 self.clock_trusted = True
-            if self.clock_trusted and self.prebuffer:
+            if self.clock_trusted:
                 # Samples gathered before the clock was trusted carry
                 # monotonic timestamps; convert them with the current offset.
-                self.store.merge_pending(self.prebuffer, shift=offset)
-                self.prebuffer = {}
+                with self.emit_lock:
+                    if self.prebuffer:
+                        self.store.merge_pending(self.prebuffer, shift=offset)
+                    self.prebuffer = {}
         return wall
 
     def _emit(self, series, key, mono_end, dt, rx, tx, rate_ok=True, est=False, count=True):
-        if self.clock_trusted:
-            self.store.add(series, key, mono_end + self.wall_offset, dt, rx, tx, rate_ok, est, count)
-        elif len(self.prebuffer) < 20000:
-            stmod.accumulate(self.prebuffer, series, key, mono_end, dt, rx, tx, rate_ok, est, count)
+        with self.emit_lock:
+            if self.clock_trusted:
+                self.store.add(series, key, mono_end + self.wall_offset, dt, rx, tx, rate_ok, est, count)
+            elif len(self.prebuffer) < 20000:
+                stmod.accumulate(self.prebuffer, series, key, mono_end, dt, rx, tx, rate_ok, est, count)
 
     def _event(self, level, source, kind, message):
         item = (int(time.time()), level, source, kind, message)
-        self.pending_events.append(item)
-        self.recent_events.appendleft(item)
+        with self.events_lock:
+            self.pending_events.append(item)
+            self.recent_events.appendleft(item)
         (log.warning if level in ("warning", "error") else log.info)("%s: %s", source, message)
 
     def _drain(self, collector, source):
@@ -183,26 +194,43 @@ class Engine:
     # -- main loop ---------------------------------------------------------------
 
     def start(self):
-        self.thread = threading.Thread(target=self._run, name="collector", daemon=True)
+        """Start two collector threads.
+
+        * ``wan``: WAN counters and router health only (cheap file reads);
+          never blocked by slow providers or database writes.
+        * ``providers``: Bandix/nlbwmon, device identification (ubus), aria2
+          and database flushes, which may wait on network/subprocess
+          timeouts or slow flash.
+        """
+        self.thread = threading.Thread(target=self._run_wan, name="wan", daemon=True)
+        self.aux_thread = threading.Thread(target=self._run_providers, name="providers", daemon=True)
         self.thread.start()
+        self.aux_thread.start()
 
     def stop(self, timeout=10.0):
         self.stop_event.set()
-        if self.thread:
-            self.thread.join(timeout)
+        for t in (self.thread, self.aux_thread):
+            if t:
+                t.join(timeout)
         try:
             self.flush()
         except Exception as exc:
             log.error("final flush failed: %s", exc)
         self.store.close()
 
-    def _run(self):
+    def _loop_error(self, where, exc):
+        self.loop_errors += 1
+        log.error("%s loop error: %s: %s", where, type(exc).__name__, exc)
+        if self.loop_errors < 20:
+            import traceback
+
+            traceback.print_exc()
+        self.stop_event.wait(1.0)
+
+    def _run_wan(self):
         s = self.settings
-        due = {"wan": 0.0, "dev": 0.5, "ident": 1.0, "aria2": 1.5, "sys": 0.2}
         start = self.p.monotonic()
-        for k in due:
-            due[k] += start
-        self.flush_due = start + s["storage.flush_interval"]
+        due = {"wan": start, "sys": start + 0.2}
         saved = None
         first = True
         while not self.stop_event.is_set():
@@ -210,19 +238,39 @@ class Engine:
             try:
                 wall = self._check_clock(now)
                 if now >= due["wan"]:
-                    if saved is None:
-                        self.wan.detect(now)
-                        saved = self._load_checkpoints()
-                    rx, tx = self.wan.sample(now, self._emit)
-                    if first and saved:
-                        self._recover_gap(saved, now, wall)
-                    first = False
+                    with self.wan_lock:
+                        if saved is None:
+                            self.wan.detect(now)
+                            saved = self._load_checkpoints()
+                        rx, tx = self.wan.sample(now, self._emit)
+                        if first and saved:
+                            self._recover_gap(saved, now, wall)
+                        first = False
                     self._drain(self.wan, "wan")
                     with self.cond:
                         self.wan_live.push(wall, rx, tx)
                         self.seq += 1
                         self.cond.notify_all()
+                    self.heartbeat["wan"] = now
                     due["wan"] = max(due["wan"] + s["wan.sample_interval"], now + 0.2)
+                if now >= due["sys"]:
+                    self.system.poll(now)
+                    self._check_quota()
+                    due["sys"] = now + 5.0
+            except Exception as exc:
+                self._loop_error("wan", exc)
+            delay = min(due.values()) - self.p.monotonic()
+            self.stop_event.wait(max(0.05, min(delay, 1.0)))
+
+    def _run_providers(self):
+        s = self.settings
+        start = self.p.monotonic()
+        due = {"dev": start + 0.5, "ident": start + 1.0, "aria2": start + 1.5}
+        self.flush_due = start + s["storage.flush_interval"]
+        while not self.stop_event.is_set():
+            now = self.p.monotonic()
+            try:
+                wall = self.p.time()
                 if now >= due["dev"]:
                     snaps = self.devices.poll(now, self._emit)
                     if snaps is not None:
@@ -232,32 +280,23 @@ class Engine:
                     elif self.devices.status.state not in ("ok", "degraded"):
                         self.dev_snaps = {}
                     self._drain(self.devices, "devices")
-                    due["dev"] = max(due["dev"] + s["devices.poll_interval"], now + 0.5)
+                    due["dev"] = max(due["dev"] + s["devices.poll_interval"], self.p.monotonic() + 0.5)
                 if now >= due["ident"]:
                     self.identity.poll(now, self.dev_snaps)
-                    due["ident"] = now + 15.0
+                    due["ident"] = self.p.monotonic() + 15.0
                 if now >= due["aria2"]:
                     live = self.aria2.poll(now, wall, self._emit)
                     self._drain(self.aria2, "aria2")
                     if live is not None:
                         self.aria2_live.push(wall, live["down"], live["up"])
-                    due["aria2"] = now + (s["aria2.poll_interval"] if live is not None else 15.0)
-                if now >= due["sys"]:
-                    self.system.poll(now)
-                    self._check_quota()
-                    due["sys"] = now + 5.0
+                    due["aria2"] = self.p.monotonic() + (s["aria2.poll_interval"] if live is not None else 15.0)
                 if now >= self.flush_due:
                     self.flush()
-                    self.flush_due = now + s["storage.flush_interval"]
+                    self.flush_due = self.p.monotonic() + s["storage.flush_interval"]
+                self.heartbeat["providers"] = now
             except Exception as exc:
-                self.loop_errors += 1
-                log.error("collector loop error: %s: %s", type(exc).__name__, exc)
-                if self.loop_errors < 20:
-                    import traceback
-
-                    traceback.print_exc()
-                self.stop_event.wait(1.0)
-            delay = min(due.values()) - self.p.monotonic()
+                self._loop_error("providers", exc)
+            delay = min(*due.values(), self.flush_due) - self.p.monotonic()
             self.stop_event.wait(max(0.05, min(delay, 1.0)))
 
     def flush(self):
@@ -268,27 +307,34 @@ class Engine:
         try:
             self.store.upsert_devices(devs)
             self.store.upsert_tasks(self.aria2.dirty_tasks())
-            events, self.pending_events = self.pending_events, []
+            with self.events_lock:
+                events, self.pending_events = self.pending_events, []
             self.store.add_events(events)
         except Exception as exc:
             log.warning("metadata flush failed: %s", exc)
         s = self.settings
-        ok = self.store.flush(
-            wall,
-            retention={
-                "minute_days": s["storage.minute_retention_days"],
-                "quarter_days": s["storage.quarter_retention_days"],
-                "device_quarter_days": s["storage.device_quarter_retention_days"],
-                "day_days": s["storage.day_retention_days"],
-            },
-        )
-        if ok and self.clock_trusted:
-            # Counter checkpoints are written only after the matching samples
-            # are persisted, so restart recovery never double counts.
-            try:
-                self.store.set_states(self.wan.checkpoint(wall))
-            except Exception as exc:
-                log.warning("checkpoint failed: %s", exc)
+        with self.flush_lock:
+            # Snapshot WAN counters together with the samples they produced,
+            # so a checkpoint never refers to data that is not yet persisted.
+            with self.wan_lock:
+                checkpoint = self.wan.checkpoint(wall) if self.clock_trusted else None
+                self.store.begin_flush()
+            ok = self.store.complete_flush(
+                wall,
+                retention={
+                    "minute_days": s["storage.minute_retention_days"],
+                    "quarter_days": s["storage.quarter_retention_days"],
+                    "device_quarter_days": s["storage.device_quarter_retention_days"],
+                    "day_days": s["storage.day_retention_days"],
+                },
+            )
+            if ok and checkpoint is not None:
+                # Written only after the matching samples are persisted, so
+                # restart recovery never double counts.
+                try:
+                    self.store.set_states(checkpoint)
+                except Exception as exc:
+                    log.warning("checkpoint failed: %s", exc)
         return ok
 
     # -- cross checks -----------------------------------------------------------
@@ -360,13 +406,17 @@ class Engine:
             if new["general.timezone"] != old["general.timezone"]:
                 self.tz, self.tz_desc = tzmod.resolve(new["general.timezone"])
                 self.store.rebuild_days(self.tz)
-                self._event("info", "settings", "timezone", "Timezone changed to %s; daily totals rebuilt from 15-minute data" % self.tz_desc)
+                self._event("info", "settings", "timezone", "Timezone changed to %s; daily totals rebuilt from 15-minute data" % self.tz_label)
             if new["wan.interfaces"] != old["wan.interfaces"] or new["wan.max_rate_mbps"] != old["wan.max_rate_mbps"]:
                 self.wan.next_detect = 0.0
             if new["devices.provider"] != old["devices.provider"] or new["devices.bandix_url"] != old["devices.bandix_url"] or new["devices.bandix_direction"] != old["devices.bandix_direction"]:
                 self.devices = perdevice.make_provider(self.p, self.settings)
                 self.dev_snaps = {}
                 self.direction_check.clear()
+            if new["aria2.url"] != old["aria2.url"] and self.secrets.has("aria2_secret"):
+                # The secret belongs to the old endpoint: never send it elsewhere.
+                self.secrets.set("aria2_secret", "")
+                self._event("info", "settings", "aria2_secret_cleared", "aria2 endpoint changed; the stored RPC secret was cleared and must be entered again")
             if new["aria2.mode"] != old["aria2.mode"] or new["aria2.url"] != old["aria2.url"]:
                 self.aria2 = aria2mod.Aria2Collector(self.p, self.settings, self.secrets)
             if new["vnstat.mode"] != old["vnstat.mode"]:
@@ -382,6 +432,15 @@ class Engine:
 
     def now(self):
         return time.time()
+
+    @property
+    def tz_label(self):
+        return tzmod.label(self.tz, self.tz_desc, time.time(), self.settings["general.timezone"])
+
+    @property
+    def data_dir_label(self):
+        """Data directory as shown to users (demo paths stay private)."""
+        return "(demo data directory)" if self.service.demo else self.service.data_dir
 
     def first_ts(self):
         first = self.store.first_data_time()
@@ -488,7 +547,11 @@ class Engine:
 
     def health(self):
         sysinfo = dict(self.system.info)
+        if self.service.demo:
+            # Simulated router: hide host paths of the demo data directory.
+            sysinfo["storage"] = [dict(x, path=x["path"] if x["path"] in ("/overlay", "/", "/tmp") else "(demo)") for x in sysinfo.get("storage", [])]
         db = self.store.status()
+        db["path"] = os.path.basename(db["path"])
         return {
             "version": __version__,
             "demo": self.service.demo,
@@ -496,13 +559,14 @@ class Engine:
             "system": sysinfo,
             "collectors": self.collectors_status(),
             "database": db,
-            "timezone": self.tz_desc,
+            "timezone": self.tz_label,
+            "timezone_spec": self.tz_desc,
             "clock_trusted": self.clock_trusted,
             "accounting_notes": self.offload_notes + (["Bandix direction check: " + self.direction_verdict().get("message", "")] if self.direction_verdict()["state"] == "suspect_swapped" else []),
             "events": [dict(zip(("t", "level", "source", "kind", "message"), e)) for e in list(self.recent_events)[:20]],
             "loop_errors": self.loop_errors,
             "flush_interval": self.settings["storage.flush_interval"],
-            "data_dir": self.service.data_dir,
+            "data_dir": self.data_dir_label,
         }
 
     def diagnostics(self):
@@ -532,7 +596,7 @@ class Engine:
             "accounting_notes": h["accounting_notes"],
             "clock_trusted": self.clock_trusted,
             "loop_errors": self.loop_errors,
-            "timezone": self.tz_desc,
+            "timezone": self.tz_label,
             "recent_event_kinds": [e["kind"] for e in h["events"]],
         }
 

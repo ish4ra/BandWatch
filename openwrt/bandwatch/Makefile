@@ -1,8 +1,10 @@
 # OpenWrt feed package for BandWatch (pure Python, architecture independent).
-# Usage: add this repository as a feed or copy openwrt/bandwatch into
-# package/ of an OpenWrt 24.10/25.12 SDK, then: make package/bandwatch/compile
-# NOTE: this Makefile has not yet been built inside an OpenWrt SDK; the CI
-# produces equivalent apk/ipk packages with scripts/build.py.
+#
+# Use this repository as a local feed in an OpenWrt SDK or buildroot:
+#   echo "src-link bandwatch /path/to/BandWatch/openwrt" >> feeds.conf
+#   ./scripts/feeds update bandwatch && ./scripts/feeds install -a -p bandwatch
+#   make package/bandwatch/compile package/luci-app-bandwatch/compile
+# Validated with the OpenWrt 25.12.0 SDK (x86-64) in CI-like conditions.
 
 include $(TOPDIR)/rules.mk
 
@@ -13,10 +15,8 @@ PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE
 PKG_MAINTAINER:=BandWatch contributors
 
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/ish4ra/BandWatch.git
-PKG_SOURCE_VERSION:=develop
-PKG_MIRROR_HASH:=skip
+# Repository root (this file lives in <root>/openwrt/bandwatch/).
+BANDWATCH_SRC ?= $(CURDIR)/../..
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -39,23 +39,32 @@ define Package/bandwatch/conffiles
 /etc/config/bandwatch
 endef
 
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+	$(CP) $(BANDWATCH_SRC)/bandwatch $(BANDWATCH_SRC)/scripts $(BANDWATCH_SRC)/LICENSE $(PKG_BUILD_DIR)/
+	$(CP) $(BANDWATCH_SRC)/openwrt/bandwatch/files $(PKG_BUILD_DIR)/owrt-files
+endef
+
 define Build/Compile
 endef
 
 define Package/bandwatch/install
-	$(INSTALL_DIR) $(1)/usr/lib/bandwatch/bandwatch
-	( cd $(PKG_BUILD_DIR) && find bandwatch -type f ! -name '*.pyc' ) | \
-		while read f; do $(INSTALL_DIR) $(1)/usr/lib/bandwatch/$$$$(dirname $$$$f); $(CP) $(PKG_BUILD_DIR)/$$$$f $(1)/usr/lib/bandwatch/$$$$f; done
+	$(INSTALL_DIR) $(1)/usr/lib/bandwatch
+	( cd $(PKG_BUILD_DIR) && find bandwatch -name '__pycache__' -prune -o -type f ! -name '*.pyc' -print ) | \
+		while read f; do $(INSTALL_DIR) $(1)/usr/lib/bandwatch/$$$$(dirname $$$$f); $(INSTALL_DATA) $(PKG_BUILD_DIR)/$$$$f $(1)/usr/lib/bandwatch/$$$$f; done
 	echo "$(PKG_VERSION)-beta.1" > $(1)/usr/lib/bandwatch/VERSION
-	$(CP) $(PKG_BUILD_DIR)/openwrt/bandwatch/files/* $(1)/
-	$(INSTALL_DIR) $(1)/usr/sbin
+	$(CP) $(PKG_BUILD_DIR)/owrt-files/* $(1)/
+	chmod 0755 $(1)/etc/init.d/bandwatch $(1)/usr/bin/bandwatch
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/share/doc/bandwatch
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/scripts/bandwatch-diag.sh $(1)/usr/sbin/bandwatch-diag
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/LICENSE $(1)/usr/share/doc/bandwatch/LICENSE
 endef
 
 define Package/bandwatch/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 killall -HUP ubusd 2>/dev/null
+i=0; while ! ubus list >/dev/null 2>&1 && [ $$i -lt 15 ]; do sleep 1; i=$$((i+1)); done
 /etc/init.d/bandwatch enable
 /etc/init.d/bandwatch restart
 exit 0
