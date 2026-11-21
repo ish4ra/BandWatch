@@ -31,13 +31,30 @@ function record(name, ok, detail = '') {
 }
 
 const DIAG = [];
+const PENDING = new Map(); // request -> start time, for every page of every context
+
+function trackRequests(ctx) {
+  ctx.on('request', (r) => PENDING.set(r, { t: Date.now(), ctx }));
+  ctx.on('requestfinished', (r) => PENDING.delete(r));
+  ctx.on('requestfailed', (r) => PENDING.delete(r));
+  ctx.on('close', () => { for (const [r, v] of PENDING) if (v.ctx === ctx) PENDING.delete(r); });
+  return ctx;
+}
 
 async function check(name, fn) {
   try {
     await fn();
     record(name, true);
   } catch (e) {
-    record(name, false, String(e && e.message ? e.message : e).split('\n')[0]);
+    const msg = String(e && e.message ? e.message : e).split('\n');
+    record(name, false, msg[0]);
+    // Playwright's call log (what it was waiting for) follows the first line.
+    if (msg.length > 1) DIAG.push(`"${name}" call log:\n  ${msg.slice(1, 14).join('\n  ')}`);
+    // Requests the browser started but that never finished.
+    const now = Date.now();
+    // Live streams stay open by design; everything else should be short.
+    const stuck = [...PENDING.entries()].filter(([r, v]) => now - v.t > 3000 && !r.url().includes('/api/live/stream'));
+    DIAG.push(`after "${name}": ${stuck.length} request(s) pending > 3 s${stuck.map(([r, v]) => `\n  ${Math.round((now - v.t) / 1000)} s ${r.method()} ${r.url()}`).join('')}`);
     // Diagnostics: is the main demo server still answering the API?
     for (const port of [18901]) {
       const t0 = Date.now();
@@ -95,6 +112,19 @@ async function watchErrors(page) {
   const hostile = startDemo(18905, ['--scenario', 'hostile-names', '--days', '2']);
   servers.push(main, pw, nob, noa, hostile);
   const browser = await playwright[BROWSER].launch();
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (opts) => {
+    const ctx = trackRequests(await newContext(opts));
+    // Leave each page before closing its context so live streams end cleanly
+    // (Firefox could stall new contexts for ~60 s after a context was closed
+    // with an open EventSource).
+    const close = ctx.close.bind(ctx);
+    ctx.close = async () => {
+      for (const p of ctx.pages()) await p.goto('about:blank', { timeout: 5000 }).catch(() => {});
+      return close();
+    };
+    return ctx;
+  };
   console.log(`Browser: ${BROWSER} ${browser.version()}`);
   try {
     await Promise.all(servers.map((s) => s.ready()));

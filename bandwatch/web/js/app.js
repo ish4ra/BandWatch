@@ -294,6 +294,13 @@ document.addEventListener('visibilitychange', () => {
   if (!state.session || !state.session.authenticated) return;
   if (document.hidden) stopLive(); else { startLive(); redrawCharts(); }
 });
+// Close the live stream when the page is unloaded or put into the
+// back/forward cache (an open stream keeps a connection busy and can prevent
+// caching); resume it if the page is restored.
+window.addEventListener('pagehide', stopLive);
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && state.session && state.session.authenticated && !document.hidden) { startLive(); redrawCharts(); }
+});
 
 setInterval(() => {
   if (state.live.received && Date.now() - state.live.received > 12000) setLivePill('off');

@@ -36,7 +36,8 @@ First beta candidate for hardware testing. Not yet verified on a physical router
   late responses from a previous view are now ignored. The Settings page no
   longer loses its form when async renders overlap, CSV/JSON downloads work
   in Safari/WebKit, and live streams are limited to 2 per client so extra
-  tabs cannot stall page loads.
+  tabs cannot stall page loads. The live stream is closed when the page is
+  left or put into the back/forward cache, and resumed on restore.
 
 ### Added during the audit
 - Optional HTTPS with a self-signed certificate created by `px5g`.
