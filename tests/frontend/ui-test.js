@@ -248,14 +248,22 @@ async function watchErrors(page) {
     });
 
     await check('history: vnStat comparison on demand', async () => {
+      // Start from a freshly mounted History view: the previous check ends
+      // right after a CSV download, and WebKit occasionally re-rendered the
+      // view after that, so a click on the old button was lost.
+      await page.goto(`${base}/#/overview`);
+      await page.waitForSelector('#k-today');
+      await page.goto(`${base}/#/history`);
+      await page.waitForSelector('#h-stats .stats');
+      const origin = await page.evaluate(() => performance.timeOrigin);
       await page.click('#vn-btn');
       try {
         await page.waitForSelector('#vn-body table', { timeout: 10000 });
       } catch (e) {
-        const shown = await page.evaluate(() => {
+        const shown = await page.evaluate((o) => {
           const b = document.querySelector('#vn-body');
-          return `vn-body: ${b ? JSON.stringify(b.innerText.slice(0, 200)) : 'missing'}; hash ${location.hash}`;
-        });
+          return `vn-body: ${b ? JSON.stringify(b.innerText.slice(0, 200)) : 'missing'}; hash ${location.hash}; reloaded ${performance.timeOrigin !== o}`;
+        }, origin);
         throw new Error(`${e.message.split('\n')[0]} (${shown})`);
       }
     });
