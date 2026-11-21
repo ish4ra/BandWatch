@@ -121,7 +121,17 @@ async function watchErrors(page) {
   const noa = startDemo(18904, ['--scenario', 'no-aria2', '--days', '0']);
   const hostile = startDemo(18905, ['--scenario', 'hostile-names', '--days', '2']);
   servers.push(main, pw, nob, noa, hostile);
-  const browser = await playwright[BROWSER].launch();
+  // Firefox in CI intermittently stalled ~80 s after test contexts closed
+  // pages with open live streams: no request was pending, so Firefox was
+  // queueing new requests behind its per-server connection limit (shared by
+  // all contexts of one browser). A real user has one profile and the
+  // dashboard caps live streams at 2 per client; the test opens dozens of
+  // contexts. Give the test browser more slots instead of hiding checks.
+  const launchOpts = BROWSER === 'firefox' ? { firefoxUserPrefs: {
+    'network.http.max-persistent-connections-per-server': 64,
+    'network.http.max-connections': 900,
+  } } : {};
+  const browser = await playwright[BROWSER].launch(launchOpts);
   const newContext = browser.newContext.bind(browser);
   browser.newContext = async (opts) => {
     const ctx = trackRequests(await newContext(opts));
