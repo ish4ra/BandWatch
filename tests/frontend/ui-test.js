@@ -125,18 +125,22 @@ async function watchErrors(page) {
   const newContext = browser.newContext.bind(browser);
   browser.newContext = async (opts) => {
     const ctx = trackRequests(await newContext(opts));
-    // Firefox under Playwright intermittently stalled every new page load for
-    // ~80 s after a context closed a page with an open EventSource (nothing
-    // pending on the network, no server involvement; raising the connection
-    // limits did not help). The Firefox job therefore runs the dashboard's
-    // polling fallback (used by browsers without EventSource); the live
-    // stream itself is covered by Chromium, WebKit and the backend tests.
-    if (BROWSER === 'firefox' || process.env.BW_UI_NO_EVENTSOURCE) await ctx.addInitScript(() => { try { delete window.EventSource; } catch { /* ignore */ } if (window.EventSource) window.EventSource = undefined; });
-    // Leave each page before closing its context so live streams end cleanly
-    // (Firefox could stall new contexts for ~60 s after a context was closed
-    // with an open EventSource).
+    if (process.env.BW_UI_NO_EVENTSOURCE) await ctx.addInitScript(() => { try { delete window.EventSource; } catch { /* ignore */ } });
     const close = ctx.close.bind(ctx);
     ctx.close = async () => {
+      if (BROWSER === 'firefox') {
+        // Firefox under Playwright intermittently stalled every new page load
+        // for ~80 s after a context was closed (or navigated away) while it
+        // had requests in flight - live stream or ordinary API calls alike;
+        // nothing was pending on the network and the server was not involved.
+        // So finished Firefox contexts are not closed: their pages stop their
+        // live updates (pagehide), in-flight requests complete, and the idle
+        // contexts are released when the browser exits.
+        for (const p of ctx.pages()) await p.evaluate(() => window.dispatchEvent(new Event('pagehide'))).catch(() => {});
+        await new Promise((r) => setTimeout(r, 1500));
+        return undefined;
+      }
+      // Other browsers: leave each page first so live streams end cleanly.
       for (const p of ctx.pages()) await p.goto('about:blank', { timeout: 5000 }).catch(() => {});
       return close();
     };
