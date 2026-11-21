@@ -158,8 +158,40 @@ sh uninstall.sh              # removes the program, KEEPS history and settings
 sh uninstall.sh --purge      # also deletes /etc/bandwatch and /etc/config/bandwatch
 ```
 
+`--purge` only deletes a genuine BandWatch data directory. The path must be
+absolute and canonical with no symbolic link anywhere in it. It must be
+named `bandwatch` (or `bandwatch-*`), must not be a system location or a
+mount point, must be owned by root or the `bandwatch` user, and may only
+contain files BandWatch creates. Otherwise it stops **without removing
+anything** and explains why, so you can check the directory and delete it
+by hand.
+
 Package installs: `apk del luci-app-bandwatch bandwatch` or
 `opkg remove luci-app-bandwatch bandwatch` (data is kept).
+
+## 8a. Hardware test round (beta testers)
+
+`/tmp` is RAM on OpenWrt: a reboot deletes it, together with the test helper
+and any report in it. So the order matters:
+
+1. `sh /tmp/bandwatch-test-round.sh before` (before installing), install, test.
+2. `sh /tmp/bandwatch-test-round.sh after`, then `sh /tmp/bandwatch-test-round.sh perf`,
+   then `sh /tmp/bandwatch-test-round.sh report`.
+3. **On your computer**, copy the report and check that it arrived:
+   `scp -O "root@192.168.1.1:/tmp/bandwatch-test-reports/*.tar.gz" .`
+4. Only then reboot the router (`reboot`). Afterwards copy
+   `bandwatch-test-round.sh` to `/tmp` again, run
+   `sh /tmp/bandwatch-test-round.sh postreboot` and copy its report the same way.
+
+**WAN isolation.** The conclusive check is local. `after` and `postreboot`
+print where BandWatch listens (`VERDICT: PASS` means loopback and LAN only),
+and `netstat -ltn | grep 8787` should show only `127.0.0.1:8787` and the LAN
+address. An outside test from mobile data proves nothing when the router's
+WAN address is behind CGNAT or private (`100.64.0.0/10`, `10.0.0.0/8`,
+`172.16.0.0/12`, `192.168.0.0/16`): the router cannot be reached from
+outside at all, firewall or not. The full procedure, in Sinhala, is in
+[INSTALL-SINHALA.md](INSTALL-SINHALA.md), and the checklist in
+[HARDWARE-TESTING.md](HARDWARE-TESTING.md).
 
 ## 9. Getting help
 

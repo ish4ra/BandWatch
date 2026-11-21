@@ -8,32 +8,66 @@
 # download file names and secrets are removed. Review the file before
 # sharing it. Nothing on the router is changed.
 
-OUT=${1:-/tmp/bandwatch-diag-$(date +%Y%m%d-%H%M%S).txt}
 umask 077
+# Temporary files are created with mktemp (never a predictable /tmp name).
+LIT=$(mktemp /tmp/bandwatch-diag-lit.XXXXXX) || { echo "cannot create a temporary file" >&2; exit 1; }
+trap 'rm -f "$LIT"' EXIT INT TERM
+if [ -n "${1:-}" ]; then
+	OUT=$1
+	# Never write through a symbolic link (e.g. one planted in /tmp).
+	[ -L "$OUT" ] && { echo "refusing to write to symbolic link $OUT" >&2; exit 1; }
+else
+	OUT=$(mktemp /tmp/bandwatch-diag-XXXXXX) || { echo "cannot create the output file" >&2; exit 1; }
+fi
 
-# Hostnames known to the router are replaced as well.
-HOSTS_SED=/tmp/.bandwatch-diag-hosts.$$
-: > "$HOSTS_SED"
-for f in /tmp/dhcp.leases /tmp/hosts/odhcpd; do
-	[ -r "$f" ] || continue
-	awk '{print $4}' "$f" 2>/dev/null
-done | grep -E '^[A-Za-z0-9._-]{3,}$' | sort -u | while read -r h; do
-	printf 's/%s/<host>/g\n' "$(printf '%s' "$h" | sed 's/[.]/\\./g')" >> "$HOSTS_SED"
-done
-HN=$(uci -q get system.@system[0].hostname)
-[ -n "$HN" ] && printf 's/%s/<router-hostname>/g\n' "$(printf '%s' "$HN" | sed 's/[.]/\\./g')" >> "$HOSTS_SED"
-
-sanitize() {
-	sed -E \
-		-e 's/([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/<mac>/g' \
-		-e 's/(^|[^0-9.])(127\.0\.0\.1)([^0-9]|$)/\1<loopback>\3/g' \
-		-e 's/([0-9]{1,3}\.){3}[0-9]{1,3}(\/[0-9]{1,2})?/<ipv4>/g' \
-		-e 's/([0-9A-Fa-f]{1,4}:){3,7}[0-9A-Fa-f]{1,4}(\/[0-9]{1,3})?/<ipv6>/g' \
-		-e 's/[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{1,4})*::([0-9A-Fa-f]{1,4}:?)*(\/[0-9]{1,3})?/<ipv6>/g' \
-		-e 's/(secret|Secret|SECRET|password|Password|passwd|token|Token)([" :=]+)[^ ",}]+/\1\2<redacted>/g' \
-		-e 's/(Download (finished|failed): ).*/\1<file name>/' \
-		-f "$HOSTS_SED"
+# --- keep in sync with scripts/bandwatch-test-round.sh (tests check both) ---
+# Values that identify people, devices or networks. Each one found on the
+# router is replaced literally wherever it appears in a report.
+collect_private_literals() {
+	{
+		uci -q get system.@system[0].hostname
+		cat /proc/sys/kernel/hostname 2>/dev/null; echo
+		for f in /tmp/dhcp.leases /tmp/hosts/odhcpd; do
+			[ -r "$f" ] && [ ! -L "$f" ] && awk '{print $4}' "$f"
+		done
+		uci -q show dhcp | sed -n "s/^dhcp\.[^.]*\.\(name\|hostname\|domain\|local\)='\(.*\)'$/\2/p"
+		uci -q show wireless | sed -n "s/^wireless\.[^.]*\.\(ssid\|key\|key[1-4]\|password\|identity\|sae_password\)='\(.*\)'$/\2/p"
+		uci -q show network | sed -n "s/^network\.[^.]*\.\(username\|password\|pincode\|apn\|hostname\|auth\|key\)='\(.*\)'$/\2/p"
+		uci -q show aria2 | sed -n "s/^aria2\.[^.]*\.\(rpc_secret\|dir\|rpc_user\|rpc_passwd\|user\)='\(.*\)'$/\2/p"
+		uci -q show ddns | sed -n "s/^ddns\.[^.]*\.\(domain\|lookup_host\|username\|password\)='\(.*\)'$/\2/p"
+	} 2>/dev/null | tr -d '\r' | awk 'length($0) >= 3' | \
+		grep -v -i -x -E '(openwrt|lan|wan|wwan|none|auto|any|default|\*|-)' | sort -u
 }
+
+# sanitize [literal-file]: filter stdin -> stdout.
+sanitize() {
+	lit=${1:-/dev/null}
+	awk -v lf="$lit" '
+		BEGIN { n = 0; while ((getline l < lf) > 0) if (length(l) >= 3) lits[++n] = l }
+		{
+			for (i = 1; i <= n; i++) {
+				s = lits[i]; out = ""; line = $0
+				while ((p = index(line, s)) > 0) { out = out substr(line, 1, p - 1) "<private>"; line = substr(line, p + length(s)) }
+				$0 = out line
+			}
+			print
+		}' | sed -E \
+		-e 's#([A-Za-z][A-Za-z0-9+.-]*://)[^/@ "]+@#\1<credentials>@#g' \
+		-e 's/(Download (finished|failed): ).*/\1<file name>/' \
+		-e 's/([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/<mac>/g' \
+		-e 's/([0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4}/<mac>/g' \
+		-e 's/(^|[^0-9.])127\.0\.0\.1([^0-9]|$)/\1<loopback>\2/g' \
+		-e 's/([0-9]{1,3}\.){3}[0-9]{1,3}(\/[0-9]{1,2})?/<ipv4>/g' \
+		-e 's/([0-9A-Fa-f]{1,4}:){4,7}[0-9A-Fa-f]{1,4}(\/[0-9]{1,3})?/<ipv6>/g' \
+		-e 's/[0-9A-Fa-f]{0,4}(:[0-9A-Fa-f]{0,4})*::([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4})*)?(\/[0-9]{1,3})?/<ipv6>/g' \
+		-e 's/"(host|hostname|alias|nickname|ssid|mac|ip|ip4|ip6|ipv4|ipv6|filename|file|path|dir|url|uri|user|username|device_name|comment)"( *: *)"[^"]*"/"\1"\2"<redacted>"/g' \
+		-e 's/([Ss]ecret|SECRET|[Pp]ass(word|wd)?|PASSWORD|[Tt]oken|TOKEN|[Aa]pi[_-]?[Kk]ey|psk|PSK|[Cc]ookie|[Aa]uthorization)([" :=]+)[^ ",}]+/\1\3<redacted>/g' \
+		-e 's/[A-Za-z0-9][A-Za-z0-9-]*\.(lan|local|home|internal|localdomain|home\.arpa)([^A-Za-z0-9.-]|$)/<host>\2/g'
+}
+
+# --- end of shared sanitiser ---
+
+collect_private_literals > "$LIT"
 
 section() { printf '\n===== %s =====\n' "$1"; }
 
@@ -97,8 +131,7 @@ section() { printf '\n===== %s =====\n' "$1"; }
 	section "Recent log lines"
 	logread -e bandwatch 2>/dev/null | tail -n 150
 	logread -e bandix 2>/dev/null | tail -n 20
-} 2>&1 | sanitize > "$OUT"
+} 2>&1 | sanitize "$LIT" > "$OUT"
 
-rm -f "$HOSTS_SED"
 echo "Diagnostics written to $OUT"
 echo "Please review the file before sharing it."

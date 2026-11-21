@@ -61,6 +61,11 @@ check "upgrade keeps password and makes a backup" "cd /tmp/bandwatch-$VER && sh 
 check "rollback on failure" "cd /tmp/bandwatch-$VER && ! BW_INSTALL_TEST_FAIL=1 sh install.sh >/tmp/rb.log 2>&1; grep -q 'rolled back' /tmp/rb.log && /etc/init.d/bandwatch running"
 check "port conflict detected" "python3 -c 'import socket,time; s=socket.socket(); s.bind((\"127.0.0.1\",8799)); s.listen(); time.sleep(4)' & sleep 1; cd /tmp/bandwatch-$VER && ! sh install.sh --port 8799 --dry-run"
 check "sanitised diagnostics" "bandwatch-diag /tmp/d.txt >/dev/null && ! grep -Eq '([0-9a-f]{2}:){5}[0-9a-f]{2}' /tmp/d.txt && ! grep -q 'integration-pass-1' /tmp/d.txt"
+# /tmp is a tmpfs inside the container, so docker cp cannot write there.
+docker exec -i "$NAME" sh -c 'cat > /tmp/test-round-check.sh' < "$ROOT/tests/openwrt/test-round-check.sh"
+check "tester helper: safe paths, sanitised reports, listening check" "sh /tmp/test-round-check.sh /tmp/bandwatch-$VER/bandwatch-test-round.sh"
+check "purge refuses a data directory with foreign files (nothing removed)" "touch /etc/bandwatch/notes.txt && cd /tmp/bandwatch-$VER && ! sh uninstall.sh --purge --yes && test -f /etc/bandwatch/notes.txt && test -e /etc/init.d/bandwatch && rm /etc/bandwatch/notes.txt"
+check "purge refuses a symlinked data directory" "ln -s /etc/bandwatch /tmp/bandwatch-alias && uci set bandwatch.main.data_dir=/tmp/bandwatch-alias && uci commit bandwatch && cd /tmp/bandwatch-$VER && if sh uninstall.sh --purge --yes; then r=1; else r=0; fi; uci set bandwatch.main.data_dir=/etc/bandwatch && uci commit bandwatch && rm /tmp/bandwatch-alias && [ \$r = 0 ] && test -d /etc/bandwatch && test -e /etc/init.d/bandwatch"
 check "uninstall keeps data" "cd /tmp/bandwatch-$VER && sh uninstall.sh && ! test -e /etc/init.d/bandwatch && test -s /etc/bandwatch/auth.json && test -f /etc/config/bandwatch"
 check "purge removes data and user" "cd /tmp/bandwatch-$VER && sh install.sh >/dev/null && sh uninstall.sh --purge --yes && ! test -e /etc/bandwatch && ! grep -q '^bandwatch:' /etc/passwd"
 

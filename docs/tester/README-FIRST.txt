@@ -17,25 +17,44 @@ What is in this folder
 
 One test round (about 2 hours, mostly normal router use)
 --------------------------------------------------------
+  IMPORTANT: /tmp on the router is RAM. A reboot deletes it, together with
+  this helper and its reports. Copy each report to your computer BEFORE
+  rebooting.
+
   0. LuCI -> System -> Backup / Flash Firmware -> Generate archive (keep it safe)
-  1. scp -O bandwatch-0.1.0-beta.1-openwrt.tar.gz bandwatch-test-round.sh root@192.168.1.1:/tmp/
+  1. On your computer, in this folder:
+     scp -O bandwatch-0.1.0-beta.1-openwrt.tar.gz bandwatch-test-round.sh root@192.168.1.1:/tmp/
   2. ssh root@192.168.1.1
      sh /tmp/bandwatch-test-round.sh before
   3. cd /tmp && tar -xzf bandwatch-0.1.0-beta.1-openwrt.tar.gz && cd bandwatch-0.1.0-beta.1
      sh install.sh --dry-run          (changes nothing)
      sh install.sh                    (write down the password it prints)
   4. Open LuCI -> Status -> BandWatch, use the router normally, work through
-     section 4 of INSTALL-SINHALA.md (or HARDWARE-TESTING.md).
-  5. sh /tmp/bandwatch-test-round.sh after
+     section 4 of INSTALL-SINHALA.md (or HARDWARE-TESTING.md). Do NOT reboot yet.
+  5. sh /tmp/bandwatch-test-round.sh after     (shows "VERDICT: ..." for WAN isolation)
      sh /tmp/bandwatch-test-round.sh perf      (5 minutes, keep dashboard closed)
-     sh /tmp/bandwatch-test-round.sh report    (BEFORE rebooting)
-  6. Copy /tmp/bandwatch-test-report-*.tar.gz to your computer and attach it,
-     with your notes, to a "Hardware test report" issue on GitHub.
+     sh /tmp/bandwatch-test-round.sh report
+  6. On your computer (not on the router):
+     scp -O "root@192.168.1.1:/tmp/bandwatch-test-reports/*.tar.gz" .
+     Check that bandwatch-pre-reboot-report-*.tar.gz is now on your computer.
+  7. Reboot test - only after step 6:
+     reboot                                    (on the router; wait 2-3 minutes)
+     scp -O bandwatch-test-round.sh root@192.168.1.1:/tmp/    (on your computer)
+     ssh root@192.168.1.1
+     sh /tmp/bandwatch-test-round.sh postreboot
+     scp -O "root@192.168.1.1:/tmp/bandwatch-test-reports/*.tar.gz" .   (on your computer)
+  8. Attach both reports, with your notes, to a "Hardware test report" issue
+     on GitHub.
+
+  WAN isolation: "VERDICT: PASS" (local check) is the conclusive result. A
+  test from mobile data proves nothing if the router's WAN address starts
+  with 100.64-100.127, 10., 172.16-172.31 or 192.168. (CGNAT / private).
 
 Safety
 ------
   * BandWatch does not change firewall, DNS, DHCP, Wi-Fi, routing, offloading,
     Bandix or aria2 settings. "test-round after" verifies this.
-  * Remove: sh uninstall.sh (keeps data)  |  sh uninstall.sh --purge (deletes data)
+  * Remove: sh uninstall.sh (keeps data)  |  sh uninstall.sh --purge (deletes data;
+    refuses, removing nothing, if the data folder looks unsafe)
   * Diagnostics: bandwatch-diag (MAC/IP addresses, names and secrets removed)
   * Beta packages are unsigned: verify SHA256SUMS before installing.

@@ -95,13 +95,33 @@ sh install.sh
    අඩකින් download කළ ගොනුවක් නැවත ආරම්භ කළ විට පැරණි දත්ත "Today" එකට එකතු නොවේද?
 10. **History**: Today / This month එකතුව vnStat සමඟ සසඳන්න ("Compare" බොත්තම).
 11. Mobile data **disconnect → connect** කරන්න: History හි අස්වාභාවික spike එකක් නැතිද?
-12. Router **reboot** කරන්න. පසුව BandWatch ස්වයංක්‍රීයව ආරම්භ වේද? පෙර දත්ත තිබේද?
-13. ජංගම දුරකථනයෙන් dashboard එක හොඳින් පෙනේද? Dark/Light theme වෙනස් වේද?
-14. **WAN පැත්තෙන් ප්‍රවේශය නොමැති බව**: router එකේ Wi-Fi නොව, දුරකථනයේ
-    mobile data භාවිතයෙන් `http://<router WAN IP>:8787/` විවෘත කිරීමට උත්සාහ
-    කරන්න — එය **විවෘත නොවිය යුතුයි**.
+12. ජංගම දුරකථනයෙන් dashboard එක හොඳින් පෙනේද? Dark/Light theme වෙනස් වේද?
+13. **WAN පැත්තෙන් ප්‍රවේශය නොමැති බව** — ප්‍රධාන පරීක්ෂාව router එක තුළම කරයි
+    (පියවර 5 හි `after` විධානය). එය `VERDICT: PASS (BandWatch listens only on
+    loopback and LAN addresses)` ලෙස පෙන්විය යුතුයි. අතින් බැලීමට:
 
-## 5. තොරතුරු එකතු කිරීම (මිනිත්තු 7)
+    ```sh
+    netstat -ltn | grep 8787
+    ```
+
+    `127.0.0.1:8787` සහ ඔබේ LAN ලිපිනය (උදා: `192.168.1.1:8787`) පමණක් පෙනිය යුතුයි.
+    `0.0.0.0:8787` හෝ `:::8787` පෙනේ නම් ⚠️ ලෙස සටහන් කරන්න.
+
+    **අමතර (විකල්ප) පරීක්ෂාව:** දුරකථනයේ Wi-Fi off කර, mobile data මගින්
+    `http://<router WAN IP>:8787/` විවෘත කිරීමට උත්සාහ කරන්න — එය විවෘත නොවිය යුතුයි.
+    **සැලකිය යුතුයි:** LuCI → Status → Overview හි WAN IPv4 ලිපිනය `100.64.` – `100.127.`,
+    `10.`, `172.16.` – `172.31.` හෝ `192.168.` වලින් ආරම්භ වේ නම්, ඔබේ සම්බන්ධතාවය
+    **CGNAT** (ISP එකේ පොදු NAT) පිටුපස ඇත. එවිට පිටතින් router එකට කිසිසේත් ළඟා විය
+    නොහැකි නිසා, පිටුව විවෘත නොවීමෙන් BandWatch ආරක්ෂිත බව **ඔප්පු නොවේ**. එවිට
+    "CGNAT — external test not conclusive" ලෙස සටහන් කර, ඉහත `netstat` / `VERDICT`
+    ප්‍රතිඵලය මත විශ්වාසය තබන්න.
+
+> Router reboot පරීක්ෂාව **මෙහි නොකරන්න** — එය පියවර 6 හිදී, වාර්තාව පරිගණකයට
+> ගත් පසුවයි. (`/tmp` ෆෝල්ඩරය සහ එහි ඇති script එක reboot එකකදී මැකී යයි.)
+
+## 5. තොරතුරු එකතු කර පරිගණකයට ගැනීම — reboot කිරීමට පෙර (මිනිත්තු 10)
+
+Router එකේ (ssh තුළ):
 
 ```sh
 sh /tmp/bandwatch-test-round.sh after
@@ -109,22 +129,66 @@ sh /tmp/bandwatch-test-round.sh perf
 sh /tmp/bandwatch-test-round.sh report
 ```
 
-* `perf` විනාඩි 5 ක් ගනී — ඒ කාලයේ dashboard එක **වසා** තබන්න.
+* `after` — router සැකසුම් වෙනස් නොවූ බව ("OK: ... configuration unchanged") සහ
+  WAN ප්‍රවේශ පරීක්ෂාව (`VERDICT: ...`) පෙන්වයි.
+* `perf` — විනාඩි 5 ක් ගනී; ඒ කාලයේ dashboard එක **වසා** තබන්න.
   ඉලක්කය: සාමාන්‍ය CPU < 2%, මතකය (RSS) < 30 MB.
-* `after` මගින් router සැකසුම් වෙනස් නොවූ බව පරීක්ෂා කරයි
-  ("OK: ... configuration unchanged").
-* `report` මගින් `/tmp/bandwatch-test-report-....tar.gz` සාදයි. එය පරිගණකයට ගන්න:
+* `report` — `/tmp/bandwatch-test-reports/` තුළ වාර්තා ගොනුවක් සාදයි.
+
+දැන් **පරිගණකයේ** (router එකේ නොව — නව PowerShell / Terminal කවුළුවක්) වාර්තාව
+පිටපත් කරන්න:
 
 ```sh
-scp -O root@192.168.1.1:/tmp/bandwatch-test-report-*.tar.gz .
+scp -O "root@192.168.1.1:/tmp/bandwatch-test-reports/*.tar.gz" .
 ```
 
-MAC/IP ලිපින, උපාංග නම් සහ මුරපද ඉවත් කර ඇත. බෙදාගැනීමට පෙර ගොනු කියවා
-බලා, ඔබේ ✅/⚠️/❌ සටහන් සමඟ GitHub issue එකකට ("Hardware test report" template)
-අමුණන්න. **Router reboot කිරීමට පෙර** `report` ක්‍රියාත්මක කරන්න (`/tmp` reboot
-එකේදී මැකේ).
+ගොනුව `bandwatch-pre-reboot-report-....tar.gz` නමින් පරිගණකයේ ෆෝල්ඩරයේ ඇති බව
+බලන්න. **එය පරිගණකයේ ඇති බව තහවුරු කළ පසුව පමණක්** ඊළඟ පියවරට යන්න.
 
-## 6. ගැටලුවක් ඇත්නම්
+## 6. Reboot පරීක්ෂාව (මිනිත්තු 10)
+
+1. Router එක reboot කරන්න (ssh තුළ):
+
+```sh
+reboot
+```
+
+2. විනාඩි 2–3 ක් රැඳී සිට, LuCI නැවත විවෘත වන තුරු බලන්න.
+3. Reboot එකෙන් `/tmp` මැකී ඇති නිසා, script එක **නැවත** router එකට යවන්න
+   (පරිගණකයේ, bundle ෆෝල්ඩරය තුළ):
+
+```sh
+scp -O bandwatch-test-round.sh root@192.168.1.1:/tmp/
+```
+
+4. Router එකට ඇතුළු වී reboot පසු තත්ත්වය එකතු කරන්න:
+
+```sh
+ssh root@192.168.1.1
+sh /tmp/bandwatch-test-round.sh postreboot
+```
+
+5. පරීක්ෂා කරන්න (✅/⚠️/❌):
+   * BandWatch ස්වයංක්‍රීයව ආරම්භ වූවාද? (`postreboot` හි `== service` → *running*)
+   * Dashboard එකේ reboot එකට පෙර දත්ත තවමත් තිබේද? (History → This month)
+   * Reboot කාලය "unmeasured" (මැනිය නොහැකි) ලෙස පෙන්වයි, ව්‍යාජ spike එකක් නැත.
+   * `VERDICT: PASS` තවමත් පෙන්වයිද?
+6. Reboot පසු වාර්තාවද පරිගණකයට ගන්න (පරිගණකයේ):
+
+```sh
+scp -O "root@192.168.1.1:/tmp/bandwatch-test-reports/*.tar.gz" .
+```
+
+## 7. ප්‍රතිඵල බෙදාගැනීම
+
+* ඔබට දැන් ගොනු **දෙකක්** තිබිය යුතුයි: `bandwatch-pre-reboot-report-....tar.gz`
+  සහ `bandwatch-post-reboot-report-....tar.gz`.
+* MAC/IP ලිපින, උපාංග නම්, Wi-Fi නම්, මුරපද, secret සහ download ගොනු නම් ඉවත් කර ඇත.
+  කිසියම් පුද්ගලික දත්තයක් ඉතිරි වී ඇති බවක් script එකට පෙනුනහොත් එය වාර්තාව නොසාදා
+  නවතී. එසේ වුවද බෙදාගැනීමට පෙර ගොනු විවෘත කර කියවා බලන්න.
+* ඒවා ඔබේ ✅/⚠️/❌ සටහන් සමඟ GitHub issue එකකට ("Hardware test report" template) අමුණන්න.
+
+## 8. ගැටලුවක් ඇත්නම්
 
 | ගැටලුව | කළ යුතු දේ |
 | --- | --- |
@@ -133,13 +197,17 @@ MAC/IP ලිපින, උපාංග නම් සහ මුරපද ඉව�
 | Port 8787 වෙනත් වැඩසටහනක් භාවිතා කරයි | `sh install.sh --port 8790` |
 | තොරතුරු වාර්තාවක් අවශ්‍යයි | `bandwatch-diag` (ගොනුව `/tmp` හි) |
 
-## 7. ඉවත් කිරීම / ප්‍රතිසාධනය (Recovery)
+## 9. ඉවත් කිරීම / ප්‍රතිසාධනය (Recovery)
 
 ```sh
 cd /tmp/bandwatch-0.1.0-beta.1
 sh uninstall.sh            # වැඩසටහන ඉවත් කරයි, දත්ත තබා ගනී
 sh uninstall.sh --purge    # සියලු BandWatch දත්ත ද මකා දමයි
 ```
+
+* `--purge` ආරක්ෂාව සඳහා `/etc/bandwatch` වැනි සැබෑ BandWatch ෆෝල්ඩරයක් පමණක්
+  මකයි. ෆෝල්ඩරය symbolic link එකක් නම්, පද්ධති ස්ථානයක ඇත්නම් හෝ BandWatch
+  නොසෑදූ ගොනු එහි ඇත්නම්, එය **කිසිවක් නොමකා** නවතී සහ හේතුව පෙන්වයි.
 
 * ස්ථාපකය පෙර අනුවාදයේ backup එකක් `/tmp/bandwatch-rollback-*.tar.gz` ලෙස සාදයි.
 * Router එකේ කිසියම් ගැටලුවක් ඇත්නම්: BandWatch ඉවත් කර (`uninstall.sh`),

@@ -39,6 +39,19 @@ First beta candidate for hardware testing. Not yet verified on a physical router
   tabs cannot stall page loads. The live stream is closed when the page is
   left or put into the back/forward cache, and resumed on restore.
 
+### Tester delivery hardening
+- Tester instructions (Sinhala, English, checklist, README-FIRST) agree: the
+  pre-reboot report is copied to the computer before rebooting; the reboot
+  test is a separate step with its own `postreboot` report.
+- `bandwatch-test-round.sh`: safe work/report directories (no symlinks,
+  root-owned, 0700), stronger sanitising (shared with `bandwatch-diag`),
+  structure-only Bandix samples, a leak check before creating a report, and a
+  local listening-address check (`VERDICT:`) for WAN isolation.
+- `uninstall.sh --purge` only deletes a canonical, genuine BandWatch data
+  directory; otherwise it removes nothing.
+- Docs: an outside test from mobile data proves nothing behind CGNAT; the
+  local listening check is the conclusive one.
+
 ### Added during the audit
 - Optional HTTPS with a self-signed certificate created by `px5g`.
 - Optional apk signing in `scripts/build.py` / CI (no keys in the repository).
