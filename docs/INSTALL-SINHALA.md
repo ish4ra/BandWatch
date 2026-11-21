@@ -13,6 +13,11 @@
 
 ## 0. සූදානම (මිනිත්තු 5)
 
+0. Tester bundle එක මෙතැනින් download කරන්න (GitHub ගිණුමක් අවශ්‍ය නැත):
+   https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1/bandwatch-0.1.0-beta.1-tester-bundle.zip
+   ඉන්පසු zip ගොනුව extract කරන්න (right-click → Extract All).
+   Dashboard එක සඳහා **Chrome, Edge හෝ Brave** බ්‍රවුසරයක් භාවිතා කරන්න
+   (Firefox මෙම beta එකේ තවම තහවුරු කර නැත).
 1. LuCI → **System → Backup / Flash Firmware → Generate archive** ඔබා
    backup ගොනුව පරිගණකයේ සුරකින්න.
 2. Bundle එකේ ඇති ගොනු:
@@ -31,9 +36,13 @@
 scp -O bandwatch-0.1.0-beta.1-openwrt.tar.gz bandwatch-test-round.sh root@192.168.1.1:/tmp/
 ```
 
-(`192.168.1.1` වෙනුවට ඔබේ router ලිපිනය යොදන්න. Windows හි ගොනු නිවැරදිදැයි
-බැලීමට: `Get-FileHash bandwatch-0.1.0-beta.1-openwrt.tar.gz` — ප්‍රතිඵලය
-`SHA256SUMS` හි ඇති අගයට සමාන විය යුතුයි.)
+(`192.168.1.1` වෙනුවට ඔබේ router ලිපිනය යොදන්න.)
+
+**ගොනු නිවැරදිදැයි පරීක්ෂා කිරීම** (පැකේජ sign කර නැති නිසා මෙය වැදගත්ය):
+Windows PowerShell හි `Get-FileHash bandwatch-0.1.0-beta.1-openwrt.tar.gz`
+ක්‍රියාත්මක කරන්න. පෙන්වන අගය `SHA256SUMS` ගොනුවේ ඇති අගයට **සම්පූර්ණයෙන්ම**
+සමාන විය යුතුයි. (Mac: `shasum -a 256 bandwatch-0.1.0-beta.1-openwrt.tar.gz`)
+සමාන නොවේ නම් ස්ථාපනය නොකර නැවත download කරන්න.
 
 ## 1. ස්ථාපනයට පෙර තොරතුරු (මිනිත්තු 1)
 

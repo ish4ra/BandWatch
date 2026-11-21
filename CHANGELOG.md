@@ -4,7 +4,31 @@ All notable changes to BandWatch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0-beta.1] - unreleased (beta candidate)
+## [0.1.0-beta.1] - 2026-11-21 (public beta prerelease)
+
+First public beta, intended for early adopters and physical-router testing.
+Not production-ready. Verified by automated tests, OpenWrt 25.12 and 24.10
+container tests and an OpenWrt 25.12 SDK build; **no physical router has been
+tested yet**.
+
+### Known issues
+- The automated Firefox dashboard tests stall intermittently under
+  Playwright after cancelled requests
+  ([#2](https://github.com/ish4ra/BandWatch/issues/2)). This is the only
+  failing CI check, accepted as a release exception. Firefox is not verified;
+  use a Chromium-based browser or Safari for this beta.
+- Packages are unsigned; verify `SHA256SUMS`.
+
+### Release and presentation
+- README redesigned, with fresh screenshots of the real dashboard in demo
+  mode (`scripts/screenshots.js`), brand assets and a social preview image
+  in `docs/assets/`.
+- Release workflow (`.github/workflows/release.yml`) builds every asset from
+  the `main` commit and publishes a GitHub prerelease. It also publishes a
+  `SHA256SUMS` over the final asset names, then downloads each asset publicly
+  and verifies it.
+- Tester instructions link to the public release assets (no GitHub account
+  needed) and recommend a Chromium-based browser.
 
 First beta candidate for hardware testing. Not yet verified on a physical router.
 

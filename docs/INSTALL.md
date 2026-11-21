@@ -29,19 +29,27 @@ df -h /overlay
 
 ## 2. Download
 
-From the GitHub Actions run of the pull request (or a release once
-published), download the `bandwatch-beta` artifact and unzip it. It
-contains:
+Download from the public release page (no GitHub account needed):
+**https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1**
 
 | File | Use it for |
 | --- | --- |
+| `bandwatch-0.1.0-beta.1-tester-bundle.zip` | Hardware testers: everything below plus guides, checklist and test-round helper |
 | `bandwatch-0.1.0-beta.1-openwrt.tar.gz` | **Recommended.** Installer with checks, backup and rollback |
 | `bandwatch-0.1.0_beta1-r1.apk`, `luci-app-bandwatch-0.1.0_beta1-r1.apk` | OpenWrt 25.12 package manager |
-| `bandwatch_0.1.0~beta1-1_all.ipk`, `luci-app-bandwatch_0.1.0~beta1-1_all.ipk` | OpenWrt 24.10 package manager |
-| `SHA256SUMS` | integrity check |
+| `bandwatch_0.1.0-beta1-1_all.ipk`, `luci-app-bandwatch_0.1.0-beta1-1_all.ipk` | OpenWrt 24.10 package manager (inside the tester bundle they are named `..._0.1.0~beta1-1_all.ipk`) |
+| `SHA256SUMS` | Integrity check |
 
-Verify the download on your computer (Linux/macOS: `sha256sum -c SHA256SUMS`;
-Windows PowerShell: `Get-FileHash bandwatch-*.tar.gz` and compare).
+The packages are **unsigned** for this beta, so verify the download on your
+computer first:
+
+* Linux: `sha256sum -c SHA256SUMS --ignore-missing`
+* macOS: `shasum -a 256 bandwatch-0.1.0-beta.1-openwrt.tar.gz`, then compare with the line in `SHA256SUMS`
+* Windows PowerShell: `Get-FileHash bandwatch-0.1.0-beta.1-openwrt.tar.gz`, then compare with the line in `SHA256SUMS`
+
+Use a Chromium-based browser (Chrome, Edge, Brave) or Safari for the
+dashboard during this beta. Firefox is not yet verified
+([#2](https://github.com/ish4ra/BandWatch/issues/2)).
 
 ## 3. Install with the installer (recommended)
 
@@ -96,7 +104,7 @@ OpenWrt 24.10:
 
 ```sh
 opkg update && opkg install python3-light python3-sqlite3 python3-urllib
-opkg install /tmp/bandwatch_0.1.0~beta1-1_all.ipk /tmp/luci-app-bandwatch_0.1.0~beta1-1_all.ipk
+opkg install /tmp/bandwatch_0.1.0*_all.ipk /tmp/luci-app-bandwatch_0.1.0*_all.ipk
 bandwatch passwd
 ```
 

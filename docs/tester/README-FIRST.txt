@@ -3,6 +3,20 @@ BandWatch 0.1.0-beta.1 - tester bundle (first hardware test: Arcadyan AW1000)
 
 සිංහල උපදෙස්: INSTALL-SINHALA.md විවෘත කරන්න (සම්පූර්ණ පරීක්ෂණ වටය එහි ඇත).
 
+Download and check
+------------------
+  Downloaded from the public release page (no GitHub account needed):
+  https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1
+
+  The packages are UNSIGNED, so check them before installing. In this folder:
+    Linux:    sha256sum -c SHA256SUMS
+    macOS:    shasum -a 256 -c SHA256SUMS
+    Windows:  Get-FileHash bandwatch-0.1.0-beta.1-openwrt.tar.gz
+              (compare with the matching line in SHA256SUMS)
+
+  Browser: use Chrome, Edge or Brave (or Safari). Firefox is not yet
+  verified for this beta: https://github.com/ish4ra/BandWatch/issues/2
+
 What is in this folder
 ----------------------
   bandwatch-0.1.0-beta.1-openwrt.tar.gz   RECOMMENDED installer (checks, backup, rollback)

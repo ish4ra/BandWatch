@@ -107,6 +107,25 @@ bandwatch.priv.pem`; public: `openssl ec -in bandwatch.priv.pem -pubout -out
 bandwatch.pem`) and never commit it. apk-tools from Alpine produced
 signatures OpenWrt's apk did not accept in testing, hence the SDK image.
 
+## Screenshots
+
+`node scripts/screenshots.js` regenerates the README screenshots in
+`docs/assets/screenshots/` from the real dashboard in demo mode (fixed seed,
+five-minute warm-up so the live charts are full; set `WARMUP_S` to shorten).
+The README images were then quantised to 256 colours to keep them small.
+
+## Releases
+
+Releases are published by `.github/workflows/release.yml`, started manually
+from `main` (Actions → Release → Run workflow, tag `vX.Y.Z[-pre]`). It
+checks that the tag matches `bandwatch/__init__.py` and that
+`docs/release-notes/<tag>.md` exists, then builds every package from that
+commit. It creates a **prerelease** with the tester bundle, installer
+archive, apk/ipk packages and a `SHA256SUMS` over the final asset names
+(`~` in ipk names becomes `-`, because GitHub rewrites it). Finally it
+downloads every asset publicly and verifies the checksums. It never
+overwrites an existing tag or release.
+
 ## Code layout
 
 See [ARCHITECTURE.md](ARCHITECTURE.md). Conventions:

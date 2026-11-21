@@ -1,6 +1,18 @@
 # Compatibility matrix
 
-Status meanings:
+Verification levels, from weakest to strongest:
+
+1. **Automated unit and integration tests**: backend on Python 3.10, 3.11
+   and 3.13, and the dashboard in Chromium, WebKit and Firefox (Firefox:
+   [#2](https://github.com/ish4ra/BandWatch/issues/2)).
+2. **OpenWrt container tests**: real procd, ubusd, rpcd, uhttpd, LuCI and
+   apk/opkg in OpenWrt 25.12 and 24.10 x86-64 rootfs containers.
+3. **OpenWrt SDK build validation**: the feed Makefiles build with the
+   25.12 SDK.
+4. **Physical router verification**: **not done yet**. The first test
+   (Arcadyan AW1000) is pending.
+
+Status meanings in the tables below:
 
 * **Container-tested**: automated tests in an OpenWrt rootfs container with
   procd, ubusd and rpcd (x86_64), see `tests/openwrt/run.sh`.
@@ -60,11 +72,29 @@ BandWatch is architecture independent (pure Python, `noarch`/`all`).
 
 ## Browsers
 
-Chromium (automated locally and in CI); Firefox and WebKit (automated in CI
-only — the browser downloads are blocked in the development sandbox).
+| Browser | Status |
+| --- | --- |
+| Chromium-based (Chrome, Edge, Brave) | Automated end-to-end tests pass (locally and in CI). **Recommended for the first hardware test round.** |
+| Safari / WebKit | Automated end-to-end tests pass (WebKit, CI only) |
+| Firefox | **Not verified.** The automated suite stalls intermittently under Playwright ([#2](https://github.com/ish4ra/BandWatch/issues/2)); whether real Firefox users are affected is not yet known |
+
 Safari on iOS/macOS is expected to work
 (standard ES2020, CSS `color-mix()` requires Safari ≥ 16.2 / Firefox ≥ 113 /
 Chrome ≥ 111). PWA installation requires HTTPS (or localhost).
+
+## Accounting caveats
+
+* WAN monitoring works on OpenWrt routers whose WAN traffic passes through
+  normal Linux interface counters.
+* Per-device monitoring requires a provider (Bandix or nlbwmon).
+* Hardware or software flow offloading can bypass the counters some
+  providers rely on, so per-device totals may be lower than the WAN total.
+* aria2 history is an estimate of payload traffic, built from aria2's own
+  counters.
+* Resource use on router hardware has not been measured yet; see
+  [PERFORMANCE.md](PERFORMANCE.md) for what has been measured, and where.
+* Packages are unsigned unless the maintainer configures a trusted signing
+  key; verify `SHA256SUMS`.
 
 ## Python
 

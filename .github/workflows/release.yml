@@ -1,0 +1,115 @@
+name: Release
+
+# Builds the distribution from the current main commit and publishes it as a
+# GitHub *prerelease* with permanent, public download assets. Started
+# manually (Actions -> Release -> Run workflow) by a maintainer; it never
+# overwrites an existing tag or release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (must match bandwatch/__init__.py, e.g. v0.1.0-beta.1)"
+        required: true
+        default: v0.1.0-beta.1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish prerelease
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check tag, version and release notes
+        run: |
+          set -eu
+          case "$TAG" in v[0-9]*) ;; *) echo "tag must look like v1.2.3[-x]"; exit 1 ;; esac
+          VER=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' bandwatch/__init__.py)
+          [ "v$VER" = "$TAG" ] || { echo "tag $TAG does not match package version $VER"; exit 1; }
+          test -s "docs/release-notes/$TAG.md" || { echo "missing docs/release-notes/$TAG.md"; exit 1; }
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "release $TAG already exists"; exit 1; fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then echo "tag $TAG already exists"; exit 1; fi
+          echo "VER=$VER" >> "$GITHUB_ENV"
+
+      - name: Build packages from this commit
+        env:
+          # Optional maintainer apk signing key (repository secret). When it
+          # is absent the packages are unsigned and the release notes say so.
+          SIGN_KEY_PEM: ${{ secrets.BANDWATCH_APK_SIGN_KEY_PEM }}
+        run: |
+          set -eu
+          if [ -n "$SIGN_KEY_PEM" ]; then
+            umask 077
+            mkdir -p "$RUNNER_TEMP/apk-key"
+            printf '%s\n' "$SIGN_KEY_PEM" > "$RUNNER_TEMP/apk-key/bandwatch.priv.pem"
+            export BANDWATCH_APK_SIGN_KEY="$RUNNER_TEMP/apk-key/bandwatch.priv.pem"
+          fi
+          python scripts/build.py
+          cd dist
+          sha256sum -c SHA256SUMS
+
+      - name: Stage release assets and checksums
+        run: |
+          set -eu
+          mkdir release
+          cp "dist/bandwatch-$VER-tester-bundle.zip" "dist/bandwatch-$VER-openwrt.tar.gz" release/
+          cp dist/bandwatch-*.apk dist/luci-app-bandwatch-*.apk release/
+          # GitHub rewrites "~" in asset names; publish the ipk files with "-".
+          for f in dist/*.ipk; do b=$(basename "$f"); cp "$f" "release/$(printf '%s' "$b" | tr '~' '-')"; done
+          cd release
+          ls -la
+          [ "$(ls | wc -l)" -eq 6 ] || { echo "expected 6 payload files"; exit 1; }
+          ls bandwatch-*.apk luci-app-bandwatch-*.apk bandwatch_*_all.ipk luci-app-bandwatch_*_all.ipk >/dev/null
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+          # The tester bundle must be complete.
+          list=$(unzip -Z1 "bandwatch-$VER-tester-bundle.zip")
+          for need in README-FIRST.txt INSTALL-SINHALA.md INSTALL.md HARDWARE-TESTING.md TROUBLESHOOTING.md \
+                      bandwatch-test-round.sh SHA256SUMS "bandwatch-$VER-openwrt.tar.gz" .apk .ipk; do
+            printf '%s\n' "$list" | grep -qF -- "$need" || { echo "tester bundle lacks $need"; exit 1; }
+          done
+          # The bundle's own checksums must match the files inside it.
+          mkdir ../bundle-check && cd ../bundle-check
+          unzip -q "../release/bandwatch-$VER-tester-bundle.zip"
+          cd "bandwatch-$VER-tester-bundle" && sha256sum -c SHA256SUMS
+
+      - name: Publish prerelease
+        run: |
+          set -eu
+          gh release create "$TAG" release/* \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "BandWatch $TAG — Initial Public Beta" \
+            --notes-file "docs/release-notes/$TAG.md"
+
+      - name: Verify public downloads
+        run: |
+          set -eu
+          gh release view "$TAG" --json isPrerelease,isDraft,targetCommitish,assets \
+            --jq '"prerelease=\(.isPrerelease) draft=\(.isDraft) target=\(.targetCommitish) assets=\(.assets|length)"'
+          [ "$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)" = true ]
+          mkdir verify && cd verify
+          for f in $(cd ../release && ls); do
+            curl -fsSL --retry 5 --retry-delay 3 -o "$f" "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$f"
+          done
+          sha256sum -c SHA256SUMS
+          echo "All $(wc -l < SHA256SUMS) assets downloaded publicly and match SHA256SUMS."
