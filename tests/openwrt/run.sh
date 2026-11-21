@@ -19,6 +19,9 @@ FAILS=0
 
 pass() { echo "PASS: $*"; }
 failt() { echo "FAIL: $*"; FAILS=$((FAILS + 1)); }
+# Readiness probe used after package installs (service start time varies by machine).
+WAIT_UP='i=0; until /etc/init.d/bandwatch running && wget -q -T 2 -O /dev/null http://127.0.0.1:8787/api/session; do i=$((i+1)); [ $i -ge 30 ] && exit 1; sleep 1; done'
+
 check() { desc="$1"; shift; if docker exec "$NAME" sh -c "$*" >/tmp/bw-it-out.$$ 2>&1; then pass "$desc"; else failt "$desc"; sed 's/^/    /' /tmp/bw-it-out.$$ | tail -20; fi; }
 
 docker build -q --build-arg OPENWRT_TAG="$TAG" -t "$IMG" "$ROOT/tests/openwrt" >/dev/null
@@ -53,12 +56,12 @@ if docker exec "$NAME" sh -c 'command -v apk' >/dev/null 2>&1 && ls "$ROOT"/dist
 	mkdir -p "$STUB/root/usr/share/doc/bw-test-stub" && echo stub > "$STUB/root/usr/share/doc/bw-test-stub/README"
 	docker run --rm -v "$STUB:/s" "${APK_IMAGE:-alpine:edge}" apk mkpkg --info name:bw-test-python-stub --info version:3.13.0-r1 --info arch:noarch --info "description:test stub" \
 		--info "provides:python3-light=3.13.0-r1 python3-sqlite3=3.13.0-r1 python3-urllib=3.13.0-r1 luci-base=26.0-r1" --files /s/root --output /s/stub.apk >/dev/null
-	check "apk package install" "apk add --allow-untrusted --no-network /dist/.stub/stub.apk /dist/bandwatch-*.apk /dist/luci-app-bandwatch-*.apk && sleep 3 && /etc/init.d/bandwatch running && wget -q -O /dev/null http://127.0.0.1:8787/api/session"
+	check "apk package install" "apk add --allow-untrusted --no-network /dist/.stub/stub.apk /dist/bandwatch-*.apk /dist/luci-app-bandwatch-*.apk && $WAIT_UP"
 	check "apk package removal keeps data" "apk del bandwatch luci-app-bandwatch && ! test -e /etc/init.d/bandwatch && test -d /etc/bandwatch"
 	rm -rf "$STUB"
 elif docker exec "$NAME" sh -c 'command -v opkg' >/dev/null 2>&1; then
 	# --force-depends only because the test image's Python is not opkg-managed; opkg then exits non-zero.
-	check "ipk package install (opkg)" "opkg install --force-depends /dist/bandwatch_*_all.ipk /dist/luci-app-bandwatch_*_all.ipk; sleep 3 && /etc/init.d/bandwatch running && wget -q -O /dev/null http://127.0.0.1:8787/api/session"
+	check "ipk package install (opkg)" "opkg install --force-depends /dist/bandwatch_*_all.ipk /dist/luci-app-bandwatch_*_all.ipk; $WAIT_UP"
 	check "ipk package removal keeps data" "opkg remove luci-app-bandwatch bandwatch && ! test -e /etc/init.d/bandwatch && test -d /etc/bandwatch"
 fi
 
