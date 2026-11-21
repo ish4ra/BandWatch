@@ -1,0 +1,37 @@
+name: Hardware test report
+description: Results of the hardware acceptance checklist on a physical router
+labels: [hardware-test]
+body:
+  - type: markdown
+    attributes:
+      value: Follow docs/HARDWARE-TESTING.md. Please sanitise anything you paste.
+  - type: input
+    id: device
+    attributes: { label: Router model }
+    validations: { required: true }
+  - type: input
+    id: openwrt
+    attributes: { label: OpenWrt release / target / arch }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: BandWatch version / artifact SHA-256 }
+    validations: { required: true }
+  - type: dropdown
+    id: wan
+    attributes:
+      label: WAN type
+      options: [Cellular 4G/5G, Ethernet / fibre ONT, PPPoE, Multi-WAN, Other]
+  - type: textarea
+    id: providers
+    attributes: { label: Providers present, placeholder: "Bandix 0.12.12, vnStat 2.13, aria2 1.37 (RPC 6800), LuCI" }
+  - type: textarea
+    id: results
+    attributes: { label: Checklist results, description: Copy the checklist sections with ✅ / ⚠️ / ❌ and notes. }
+    validations: { required: true }
+  - type: textarea
+    id: perf
+    attributes: { label: Performance, placeholder: "CPU idle %, RSS MiB, DB size after 24 h" }
+  - type: textarea
+    id: diag
+    attributes: { label: Sanitised diagnostics, render: text }

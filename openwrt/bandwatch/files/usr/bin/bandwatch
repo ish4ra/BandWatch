@@ -1,0 +1,17 @@
+#!/bin/sh
+# BandWatch command line wrapper.
+export PYTHONPATH=/usr/lib/bandwatch
+export PYTHONDONTWRITEBYTECODE=1
+case "$1" in
+	passwd)
+		# Run as root, then make sure the service account can read the file.
+		/usr/bin/python3 -m bandwatch "$@"; rc=$?
+		dir=$(uci -q get bandwatch.main.data_dir || echo /etc/bandwatch)
+		usr=$(uci -q get bandwatch.main.user || echo bandwatch)
+		if [ -f "$dir/auth.json" ] && [ ! -L "$dir/auth.json" ] && grep -q "^${usr}:" /etc/passwd 2>/dev/null; then
+			find "$dir" -maxdepth 1 -name auth.json -type f -user root -exec chown "$usr:$usr" {} \;
+		fi
+		exit $rc
+		;;
+esac
+exec /usr/bin/python3 -m bandwatch "$@"

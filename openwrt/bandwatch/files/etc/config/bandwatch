@@ -1,0 +1,35 @@
+# BandWatch service configuration (read by the daemon at start-up).
+# Dashboard settings (units, sampling, retention, integrations) are edited
+# in the web interface and stored in <data_dir>/settings.json.
+
+config bandwatch 'main'
+	option enabled '1'
+	# TCP port of the standalone dashboard
+	option port '8787'
+	# 'lan' = the IPv4 address of the LAN interface (plus loopback),
+	# 'loopback' = 127.0.0.1 only, or explicit IP addresses.
+	# Never expose BandWatch on the WAN.
+	list listen 'lan'
+	# Logical OpenWrt interface used to resolve 'lan' and the LAN bridge
+	option lan_interface 'lan'
+	# Client networks allowed to connect: 'private' (RFC1918, ULA,
+	# link-local, loopback), CIDR ranges (e.g. '100.64.0.0/10' for a
+	# tailnet), or 'any'
+	list allowed_networks 'private'
+	# 'password' (recommended) or 'none' (only allowed with loopback)
+	option auth 'password'
+	# Persistent data (database, settings, secrets). Point this to external
+	# storage to save flash wear; BandWatch writes in batches either way.
+	option data_dir '/etc/bandwatch'
+	# Unprivileged account the daemon runs as (created on install)
+	option user 'bandwatch'
+	option log_level 'info'
+	# Optional HTTPS for the dashboard (needs python3-openssl and px5g).
+	# A self-signed certificate is created on first start; uhttpd/LuCI and
+	# their certificates are not touched.
+	option https '0'
+	#option tls_cert '/etc/bandwatch/tls/cert.pem'
+	#option tls_key '/etc/bandwatch/tls/key.pem'
+	# Provider endpoints (Bandix, aria2) must be on this router unless this
+	# is set to '1' (allows private LAN addresses).
+	option allow_lan_providers '0'

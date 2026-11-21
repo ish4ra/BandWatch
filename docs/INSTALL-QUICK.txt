@@ -1,0 +1,16 @@
+BandWatch - quick installation (beta)
+=====================================
+
+1. Copy this archive to the router, e.g.:
+     scp -O bandwatch-*-openwrt.tar.gz root@192.168.1.1:/tmp/
+2. On the router:
+     cd /tmp && tar -xzf bandwatch-*-openwrt.tar.gz && cd bandwatch-*/
+     sh install.sh --dry-run          # read-only checks, changes nothing
+     sh install.sh                    # install (add --install-deps if Python is missing)
+3. Open http://<router-ip>:8787/ or LuCI -> Status -> BandWatch.
+
+Uninstall (keeps your data):   sh uninstall.sh
+Remove everything:             sh uninstall.sh --purge
+Diagnostics (sanitised):       bandwatch-diag
+
+This is a BETA build. Full documentation: https://github.com/ish4ra/BandWatch

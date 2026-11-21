@@ -1,0 +1,35 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please do **not** paste raw configuration files, MAC/IP addresses,
+        hostnames or passwords. Attach the sanitised output of `bandwatch-diag` instead (review it first).
+  - type: input
+    id: version
+    attributes: { label: BandWatch version, placeholder: "0.1.0-beta.1" }
+    validations: { required: true }
+  - type: input
+    id: openwrt
+    attributes: { label: OpenWrt release and target, placeholder: "25.12.5 qualcommax/ipq807x" }
+    validations: { required: true }
+  - type: input
+    id: device
+    attributes: { label: Router model, placeholder: "Arcadyan AW1000" }
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation method
+      options: [Installer archive, apk package, ipk package, Demo mode on a PC]
+  - type: textarea
+    id: what
+    attributes: { label: What happened?, description: Include steps to reproduce. }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: What did you expect? }
+  - type: textarea
+    id: diag
+    attributes: { label: Diagnostics, description: "Attach the file from `bandwatch-diag` or paste relevant (sanitised) lines from `logread -e bandwatch`.", render: text }

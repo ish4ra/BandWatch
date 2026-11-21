@@ -1,0 +1,7 @@
+{"interface": [
+ {"interface": "lan", "up": true, "proto": "static", "l3_device": "br-lan", "device": "br-lan", "route": []},
+ {"interface": "wan", "up": true, "proto": "pppoe", "l3_device": "pppoe-wan", "device": "wan", "route": [{"target": "0.0.0.0", "mask": 0, "nexthop": "10.64.0.1", "source": "0.0.0.0/0"}]},
+ {"interface": "wan6", "up": true, "proto": "dhcpv6", "l3_device": "pppoe-wan", "device": "pppoe-wan", "route": [{"target": "::", "mask": 0, "nexthop": "fe80::1", "source": "::/0"}]},
+ {"interface": "henet", "up": true, "proto": "6in4", "l3_device": "6in4-henet", "device": "6in4-henet", "route": [{"target": "::", "mask": 0, "nexthop": "::", "source": "::/0"}]},
+ {"interface": "vpn", "up": false, "proto": "wireguard", "l3_device": "wg0", "route": [{"target": "0.0.0.0", "mask": 0}]}
+]}

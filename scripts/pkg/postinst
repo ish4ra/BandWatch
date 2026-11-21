@@ -1,0 +1,45 @@
+#!/bin/sh
+# BandWatch package post-install / post-upgrade (shared by apk and ipk).
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+. /lib/functions.sh
+
+if ! group_exists bandwatch; then
+	group_add_next bandwatch >/dev/null
+fi
+if ! user_exists bandwatch; then
+	gid=$(grep -s '^bandwatch:' /etc/group | cut -d: -f3)
+	user_add bandwatch "" "$gid" bandwatch /var/run/bandwatch /bin/false
+fi
+
+data_dir=$(uci -q get bandwatch.main.data_dir || echo /etc/bandwatch)
+mkdir -p "$data_dir"
+chmod 0750 "$data_dir"
+chown bandwatch:bandwatch "$data_dir" 2>/dev/null
+
+# Load the ubus ACL that lets the unprivileged service read interface state.
+killall -HUP ubusd 2>/dev/null
+
+# procd is controlled over ubus: make sure ubus answers before (re)starting,
+# otherwise the start request can be lost on a busy system.
+wait_ubus() {
+	i=0
+	while ! ubus list >/dev/null 2>&1 && [ $i -lt 15 ]; do sleep 1; i=$((i + 1)); done
+}
+wait_ubus
+/etc/init.d/bandwatch enable
+if /etc/init.d/bandwatch running >/dev/null 2>&1; then
+	/etc/init.d/bandwatch restart
+else
+	/etc/init.d/bandwatch start
+fi
+sleep 1
+if ! /etc/init.d/bandwatch running >/dev/null 2>&1; then
+	wait_ubus
+	/etc/init.d/bandwatch start
+fi
+
+if [ ! -s "$data_dir/auth.json" ]; then
+	echo "BandWatch: set a dashboard password with 'bandwatch passwd'"
+	echo "           (or open Status -> BandWatch in LuCI if luci-app-bandwatch is installed)."
+fi
+exit 0

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Data in /etc/bandwatch and /etc/config/bandwatch is preserved.
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+killall -HUP ubusd 2>/dev/null
+echo "BandWatch removed. Your data was kept in /etc/bandwatch (delete it manually to purge)."
+exit 0

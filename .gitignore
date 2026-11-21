@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Build output
+dist/
+build/
+*.egg-info/
+
+# Node / Playwright
+node_modules/
+tests/frontend/node_modules/
+test-results/
+playwright-report/
+
+# Local data - never commit real router data, databases or secrets
+*.db
+*.db-wal
+*.db-shm
+*.db.corrupt-*
+settings.json
+secrets.json
+auth.json
+bandwatch-diag-*.txt
+/data/
+.env
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

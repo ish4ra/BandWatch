@@ -1,0 +1,7 @@
+{
+  "name": "bandwatch-ui-tests",
+  "private": true,
+  "description": "End-to-end dashboard tests (development only, never shipped)",
+  "scripts": { "test": "node ui-test.js" },
+  "devDependencies": { "playwright": "1.63.0" }
+}

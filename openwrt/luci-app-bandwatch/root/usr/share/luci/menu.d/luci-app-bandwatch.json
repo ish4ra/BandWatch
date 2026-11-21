@@ -1,0 +1,13 @@
+{
+	"admin/status/bandwatch": {
+		"title": "BandWatch",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "bandwatch/dashboard"
+		},
+		"depends": {
+			"acl": [ "luci-app-bandwatch" ]
+		}
+	}
+}

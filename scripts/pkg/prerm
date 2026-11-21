@@ -1,0 +1,6 @@
+#!/bin/sh
+# BandWatch package pre-removal: stop the service. User data is kept.
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+/etc/init.d/bandwatch stop 2>/dev/null
+/etc/init.d/bandwatch disable 2>/dev/null
+exit 0
