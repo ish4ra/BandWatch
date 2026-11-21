@@ -132,7 +132,7 @@ async function watchErrors(page) {
     });
 
     await check('live chart and KPIs update from the stream', async () => {
-      await page.waitForFunction(() => !document.querySelector('#k-down').textContent.includes('—'), null, { timeout: 10000 });
+      await page.waitForFunction(() => (document.querySelector('#k-down')?.textContent || '—').indexOf('—') < 0, null, { timeout: 10000 });
       const pill = await page.getAttribute('#live-pill', 'class');
       assert(pill.includes('live'), `live pill: ${pill}`);
     });
@@ -174,7 +174,7 @@ async function watchErrors(page) {
       await page.waitForSelector('.toast.error');
       await page.fill('#alias', 'Front door camera');
       await page.click('#alias-form button');
-      await page.waitForFunction(() => document.querySelector('#dd-name').textContent === 'Front door camera', null, { timeout: 8000 });
+      await page.waitForFunction(() => (document.querySelector('#dd-name')?.textContent || '') === 'Front door camera', null, { timeout: 8000 });
       assert(!(await page.$('img[src="x"]')), 'payload rendered');
     });
 
@@ -211,9 +211,9 @@ async function watchErrors(page) {
       await page.fill('[id="f-wan.sample_interval"]', '3');
       await page.selectOption('[id="f-ui.rate_unit"]', 'bytes');
       await page.click('#settings button[type="submit"]');
-      await page.waitForFunction(() => document.querySelector('#save-msg').textContent.startsWith('Saved'), null, { timeout: 8000 });
+      await page.waitForFunction(() => (document.querySelector('#save-msg')?.textContent || '').startsWith('Saved'), null, { timeout: 8000 });
       await page.goto(`${base}/#/overview`);
-      await page.waitForFunction(() => /B\/s/.test(document.querySelector('#k-down').textContent), null, { timeout: 10000 });
+      await page.waitForFunction(() => /B\/s/.test((document.querySelector('#k-down')?.textContent || '')), null, { timeout: 10000 });
     });
 
     await check('aria2 secret is write-only', async () => {
@@ -254,7 +254,7 @@ async function watchErrors(page) {
       await p3.waitForSelector('#login-form');
       await p3.fill('#login-pw', 'wrong-password');
       await p3.click('#login-form button');
-      await p3.waitForFunction(() => document.querySelector('#login-err').textContent.length > 0);
+      await p3.waitForFunction(() => (document.querySelector('#login-err')?.textContent || '').length > 0);
       await p3.fill('#login-pw', 'ui-test-password');
       await p3.click('#login-form button');
       await p3.waitForSelector('#main .card', { timeout: 10000 });
@@ -272,7 +272,7 @@ async function watchErrors(page) {
       const t = await p4.textContent('.banner-inline');
       assert(/unavailable|provider/i.test(t), t);
       await p4.goto('http://127.0.0.1:18903/#/overview');
-      await p4.waitForFunction(() => !document.querySelector('#k-down').textContent.includes('—'), null, { timeout: 10000 });
+      await p4.waitForFunction(() => (document.querySelector('#k-down')?.textContent || '—').indexOf('—') < 0, null, { timeout: 10000 });
       await c4.close();
     });
 
