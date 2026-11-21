@@ -46,9 +46,16 @@ Design choices:
 * **Python standard library only.** No pip dependencies; runs with
   `python3-light`, `python3-sqlite3` and `python3-urllib`. The `logging`
   package is avoided to save a dependency.
-* **One process, one collector thread.** Samples are taken once and shared
-  by all browser sessions (SSE fan-out); web requests never trigger
-  collection, except the on-demand vnStat comparison.
+* **One process, two collector threads.** The `wan` thread samples interface
+  counters and router health and never waits on the network, subprocesses
+  or SQLite. The `providers` thread polls Bandix/nlbwmon, ubus Wi-Fi lists and
+  aria2 and performs database flushes. Samples are taken once and shared by
+  all browser sessions (SSE fan-out); web requests never trigger collection,
+  except the on-demand vnStat comparison.
+* **Accumulation never waits for disk I/O.** In-memory buckets have their
+  own lock; a flush moves them to an in-flight set that stays visible to
+  queries until the transaction commits. WAN counter checkpoints are
+  snapshotted atomically with that swap.
 * **Subprocesses only at slow intervals** (ubus every 30 s, `nlbw`, vnStat on
   demand), with fixed argument lists, no shell and timeouts.
 * **Unprivileged service user.** A ubus ACL (`/usr/share/acl.d/bandwatch.json`)
@@ -89,10 +96,16 @@ available for review; re-validate on hardware):
   `l_rx_b`/`l_tx_b` (LAN), rates `*_r` (bytes/s), `last` (ms).
 
 BandWatch never calls Bandix write endpoints (limits, quotas, bindings,
-deletes). Bandix does not document the rx/tx direction; BandWatch assumes
-rx = device download, offers `devices.bandix_direction`, and cross-checks
-the sum of device rates against WAN counters (shown in Health when the
-direction looks inverted).
+deletes). The Bandix README does not define the rx/tx direction, but the
+upstream LuCI application labels `w_rx_*` as "Download" (下载, ↓) and
+`w_tx_*` as "Upload" (上传, ↑) and its rpcd comments describe `w_rx_b` as
+WAN download bytes; BandWatch therefore uses rx = device download by
+default. The eBPF counting code itself was not reviewed, so the direction
+remains a hardware-verification item; `devices.bandix_direction` and an
+automatic WAN cross-check (Health warning) cover an inversion. Since 0.12.7
+Bandix uses short keys (`w_rx_b` …); long names (`wan_rx_bytes` …) are
+accepted as a best-effort fallback, and `/api/version` is tried when
+`/api/system/info` is missing (as the upstream LuCI app does).
 
 ### Per-device: nlbwmon (fallback)
 
@@ -102,14 +115,19 @@ under-counted. Requires permission to query nlbwmon (often root only).
 
 ### aria2 (optional)
 
-Read-only `system.multicall` of `getVersion`, `getSessionInfo`,
+Endpoints must be on the router (loopback) unless the administrator sets
+`option allow_lan_providers '1'`. The RPC secret is cleared whenever the
+endpoint changes. Read-only `system.multicall` of `getVersion`, `getSessionInfo`,
 `getGlobalStat`, `tellActive`, `tellWaiting`, `tellStopped`. Transfer
 history = per-task `completedLength`/`uploadLength` deltas; the first
 observation of a task is a baseline (pre-existing data is never counted); a
 new `sessionId` (aria2 restart) re-baselines; jumps larger than physically
 possible (integrity checks) are discarded. Progress made during a short RPC
 outage is counted once, without peak statistics. aria2 figures are payload
-estimates and are never added to WAN totals.
+estimates and are never added to WAN totals. Data a task already had when
+first seen after the session's first poll (resumed data, or a short download
+that started and finished between two polls) is reported on the aria2 page
+as "not counted" rather than guessed.
 
 ### Identity and presence
 

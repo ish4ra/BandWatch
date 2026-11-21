@@ -30,12 +30,24 @@ function record(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}: ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
+const DIAG = [];
+
 async function check(name, fn) {
   try {
     await fn();
     record(name, true);
   } catch (e) {
     record(name, false, String(e && e.message ? e.message : e).split('\n')[0]);
+    // Diagnostics: is the main demo server still answering the API?
+    for (const port of [18901]) {
+      const t0 = Date.now();
+      try {
+        const r = await fetch(`http://127.0.0.1:${port}/api/session`, { signal: AbortSignal.timeout(5000) });
+        DIAG.push(`after "${name}": :${port}/api/session -> ${r.status} in ${Date.now() - t0} ms`);
+      } catch (err) {
+        DIAG.push(`after "${name}": :${port}/api/session -> ${err.name} after ${Date.now() - t0} ms`);
+      }
+    }
   }
 }
 
@@ -368,6 +380,11 @@ async function watchErrors(page) {
   } finally {
     await browser.close();
     servers.forEach((s) => s.stop());
+  }
+  if (failures) {
+    console.log('\n--- diagnostics ---');
+    DIAG.forEach((d) => console.log(d));
+    servers.forEach((s, i) => console.log(`--- demo server ${i} log (tail) ---\n${s.log().split('\n').slice(-40).join('\n')}`));
   }
   console.log(`\n${results.length - failures}/${results.length} frontend checks passed`);
   process.exit(failures ? 1 : 0);

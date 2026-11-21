@@ -58,6 +58,8 @@ function download(path) {
   const a = document.createElement('a');
   a.href = path;
   a.rel = 'noopener';
+  // Explicit download: Safari/WebKit otherwise navigates to text/csv responses.
+  a.download = '';
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -517,7 +519,7 @@ async function deviceDetail(el, mac) {
       $('#alias', el).value = dev.alias || '';
       $('#alias-form', el).addEventListener('submit', async (e) => {
         e.preventDefault();
-        try { await api(`/api/devices/${encodeURIComponent(mac)}/alias`, { method: 'POST', body: { alias: $('#alias', el).value } }); toast('Name saved'); load(); } catch (err) { toast(err.message, 'error'); }
+        try { await api(`/api/devices/${encodeURIComponent(mac)}/alias`, { method: 'POST', body: { alias: $('#alias', e.target).value } }); toast('Name saved'); load(); } catch (err) { toast(err.message, 'error'); }
       });
     }
     $('#dd-name', el).textContent = dev.name || 'Unnamed device';
@@ -713,9 +715,14 @@ function txt(key, value, extra = '') {
 views.settings = {
   title: 'Settings',
   async mount(el) {
+    // Overlapping mounts (re-render after saving, quick navigation) must not
+    // leave handlers bound to a replaced form: only the latest mount renders.
+    const token = String((Number(el.dataset.mountToken) || 0) + 1);
+    el.dataset.mountToken = token;
     el.innerHTML = skeleton(6);
     let d;
-    try { d = await api('/api/settings'); } catch (e) { if (e.status !== 401) el.innerHTML = errorCard(e, () => views.settings.mount(el)); return; }
+    try { d = await api('/api/settings'); } catch (e) { if (e.status !== 401 && el.dataset.mountToken === token) el.innerHTML = errorCard(e, () => views.settings.mount(el)); return; }
+    if (el.dataset.mountToken !== token || state.view !== 'settings') return;
     const s = d.settings;
     const auto = !s['wan.interfaces'].length;
     el.innerHTML = `<form id="settings" class="settings" novalidate>
@@ -798,17 +805,18 @@ views.settings = {
       } catch (err) { toast(err.message, 'error'); $('#save-msg', el).textContent = err.message; }
     });
     const saveSecret = async (value) => {
-      try { await api('/api/settings/aria2-secret', { method: 'POST', body: { secret: value } }); toast(value ? 'aria2 secret saved' : 'aria2 secret cleared'); views.settings.mount(el); } catch (err) { toast(err.message, 'error'); }
+      try { await api('/api/settings/aria2-secret', { method: 'POST', body: { secret: value } }); toast(value ? 'aria2 secret saved' : 'aria2 secret cleared'); if (state.view === 'settings') views.settings.mount(el); } catch (err) { toast(err.message, 'error'); }
     };
-    $('#a-secret-save', el).addEventListener('click', () => { const v = $('#a-secret', el).value; if (!v) { toast('Enter the secret first', 'error'); return; } saveSecret(v); });
+    const secretInput = $('#a-secret', el);
+    $('#a-secret-save', el).addEventListener('click', () => { const v = secretInput.value; if (!v) { toast('Enter the secret first', 'error'); return; } saveSecret(v); });
     const clr = $('#a-secret-clear', el);
     if (clr) clr.addEventListener('click', () => saveSecret(''));
     const pw = $('#pw-form', el);
     if (pw) pw.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if ($('#pw-new', el).value !== $('#pw-new2', el).value) { toast('The new passwords do not match', 'error'); return; }
+      if ($('#pw-new', pw).value !== $('#pw-new2', pw).value) { toast('The new passwords do not match', 'error'); return; }
       try {
-        const r = await api('/api/password', { method: 'POST', body: { current: $('#pw-cur', el).value, password: $('#pw-new', el).value } });
+        const r = await api('/api/password', { method: 'POST', body: { current: $('#pw-cur', pw).value, password: $('#pw-new', pw).value } });
         state.csrf = r.csrf;
         pw.reset();
         toast('Password changed');

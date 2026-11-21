@@ -32,7 +32,8 @@ WAN usage · per-device usage · aria2 downloads · router health — all local,
   and custom ranges, with totals, peak/average/minimum speeds, measurement
   coverage and CSV export. Missing data is shown as a gap, never as zero.
 - **Router health**: CPU, memory, storage, temperature, uptime, BandWatch's
-  own resource use, collector and database status.
+  own resource use, collector and database status, and the database size
+  separately from filesystem usage.
 - **Quota tracking** with a configurable billing day and local alerts.
 - **Premium responsive dashboard**: dark (default) / light / system themes,
   phone/tablet/desktop layouts, keyboard accessible, reduced-motion aware,
@@ -41,9 +42,10 @@ WAN usage · per-device usage · aria2 downloads · router health — all local,
   CSRF protection, strict CSP, unprivileged service account, sanitised
   diagnostics.
 - **Embedded-friendly**: Python standard library only, SQLite with tiered
-  roll-ups, batched flash writes, bounded memory. Measured ~28 MiB RSS and
-  ~0.1 % CPU idle on an x86 development machine (router figures still to be
-  measured).
+  roll-ups, batched flash writes, bounded memory; WAN sampling runs on its
+  own thread so slow providers cannot delay it. Measured 25–29 MiB RSS and
+  0.1–0.2 % CPU idle on x86 (see [PERFORMANCE.md](docs/PERFORMANCE.md));
+  router figures are still to be measured.
 
 | History (light theme) | Phone |
 | --- | --- |
@@ -96,6 +98,9 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 | [HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md) | Acceptance checklist for physical routers |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common problems and diagnostics |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Building, testing, demo scenarios, CI |
+| [REQUIREMENTS-TRACEABILITY.md](docs/REQUIREMENTS-TRACEABILITY.md) | Every requirement → code → tests, with verification level |
+| [SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md) | Pre-beta security audit findings and fixes |
+| [PERFORMANCE.md](docs/PERFORMANCE.md) | Measured resource use (dev machine) vs router targets |
 | [SECURITY.md](SECURITY.md) | Security model and vulnerability reporting |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 

@@ -18,17 +18,20 @@ BandWatch is a local-first application for the LAN side of a router.
 * Listens on the LAN address and 127.0.0.1 by default (`option listen 'lan'`),
   never on all addresses unless explicitly configured.
 * Rejects clients outside `allowed_networks` (default: private, ULA,
-  link-local, loopback and CGNAT ranges) even if a firewall rule is wrong.
+  link-local and loopback; CGNAT 100.64.0.0/10 only if added explicitly)
+  even if a firewall rule is wrong.
 * Rejects unexpected `Host` headers (DNS-rebinding protection).
-* Makes no outbound connections except to the local Bandix/aria2
-  endpoints configured by the administrator (restricted to loopback/private
-  addresses). No telemetry, update checks or CDNs.
+* Makes no outbound connections except to the Bandix/aria2 endpoints on the
+  router itself (loopback only, unless the administrator sets
+  `option allow_lan_providers '1'`). No telemetry, update checks or CDNs.
+* Optional HTTPS (`option https '1'`) with a self-signed certificate created
+  by OpenWrt's `px5g`; uhttpd/LuCI are not touched.
 
 **Authentication**
 * Password (PBKDF2-HMAC-SHA256, 120 000 iterations, random salt) stored in
   `/etc/bandwatch/auth.json` (mode 0600), or LuCI single sign-on through an
-  rpcd plugin that requires the `luci-app-bandwatch` ACL and issues one-time
-  tokens valid for 60 seconds.
+  rpcd plugin that requires *write* access in the `luci-app-bandwatch` ACL
+  and issues one-time tokens valid for 60 seconds.
 * Sessions: random 256-bit tokens, `HttpOnly`, `SameSite=Strict`, 12 h max /
   4 h idle, kept in memory only.
 * Failed logins are rate limited per client address (exponential back-off).
@@ -60,10 +63,15 @@ BandWatch is a local-first application for the LAN side of a router.
   Bandix, vnStat or aria2 configuration, and never flashes firmware. The
   installer only adds its own files, user, ubus ACL and init script.
 
+The latest audit and its findings are in
+[docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md).
+
 ## Known limitations
 
-* The dashboard uses plain HTTP on the LAN. Anyone who can sniff LAN
-  traffic could capture a session cookie. Use a trusted LAN, or put
-  BandWatch behind an HTTPS reverse proxy you control.
-* Beta packages are unsigned; verify `SHA256SUMS` before installing.
+* The dashboard uses plain HTTP on the LAN by default. Anyone who can sniff
+  LAN traffic could capture a session cookie. Enable `option https '1'` or
+  use a trusted LAN.
+* Beta packages are unsigned unless the maintainer configures the
+  `BANDWATCH_APK_SIGN_KEY_PEM` CI secret; verify `SHA256SUMS` before
+  installing.
 * Sessions are invalidated on service restart (by design).

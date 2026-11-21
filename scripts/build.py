@@ -241,6 +241,28 @@ def build_apk(name, version, files, depends, scripts, workdir, out_path, mtime):
     return True
 
 
+SDK_IMAGE = os.environ.get("BANDWATCH_SDK_IMAGE", "openwrt/sdk:x86-64-25.12.0")
+
+
+def sign_apks(paths, key_path):
+    """Sign apk v3 packages with OpenWrt's own apk-tools (from the SDK image).
+
+    apk-tools from other distributions produced signatures that OpenWrt's
+    apk 3.0.x did not accept in testing, so the SDK's host apk is used.
+    The private key never leaves the build machine and is never committed.
+    """
+    if not paths:
+        return True
+    docker = shutil.which("docker")
+    if not docker or not os.path.isfile(key_path):
+        return False
+    out = os.path.dirname(paths[0])
+    keydir = os.path.dirname(os.path.abspath(key_path))
+    cmd = [docker, "run", "--rm", "-v", "%s:/out" % out, "-v", "%s:/key:ro" % keydir, "--user", "0:0", SDK_IMAGE, "sh", "-c",
+           " && ".join("/builder/staging_dir/host/bin/apk adbsign --allow-untrusted --sign-key /key/%s /out/%s" % (os.path.basename(key_path), os.path.basename(p)) for p in paths)]
+    return subprocess.run(cmd).returncode == 0
+
+
 def sha256(path):
     h = hashlib.sha256()
     with open(path, "rb") as fh:
@@ -278,6 +300,7 @@ def main():
         archive["scripts/" + n] = os.path.join(pkgdir, n)
     archive["VERSION"] = (ver + "\n").encode()
     archive["README-INSTALL.txt"] = os.path.join(ROOT, "docs", "INSTALL-QUICK.txt")
+    archive["bandwatch-test-round.sh"] = os.path.join(ROOT, "scripts", "bandwatch-test-round.sh")
     sums = "".join("%s  %s\n" % (hashlib.sha256(_data(archive[p])).hexdigest(), p) for p in sorted(archive) if p.startswith(("rootfs", "scripts/")))
     archive["SHA256SUMS"] = sums.encode()
     path = os.path.join(out, "bandwatch-%s-openwrt.tar.gz" % ver)
@@ -307,6 +330,16 @@ def main():
             if build_apk(name, av, files, deps, scripts, work, path, mtime):
                 produced.append(path)
 
+    # 4. Optional apk signing (maintainer key supplied at build time only).
+    key = os.environ.get("BANDWATCH_APK_SIGN_KEY")
+    if key:
+        apks = [p for p in produced if p.endswith(".apk")]
+        if sign_apks(apks, key):
+            print("  apk packages signed with %s (install the matching public key in /etc/apk/keys/)" % os.path.basename(key))
+        else:
+            print("  apk signing FAILED; packages remain unsigned")
+            sys.exit(1)
+
     shutil.rmtree(work, ignore_errors=True)
     with open(os.path.join(out, "SHA256SUMS"), "w") as fh:
         for p in sorted(produced):
@@ -314,6 +347,46 @@ def main():
     for p in produced:
         print("%8.1f KiB  %s" % (os.path.getsize(p) / 1024, os.path.relpath(p, ROOT)))
     print("SHA256SUMS written")
+    bundle = build_tester_bundle(out, produced, mtime)
+    print("%8.1f KiB  %s" % (os.path.getsize(bundle) / 1024, os.path.relpath(bundle, ROOT)))
+
+
+TESTER_DOCS = {
+    "README-FIRST.txt": "docs/tester/README-FIRST.txt",
+    "INSTALL-SINHALA.md": "docs/INSTALL-SINHALA.md",
+    "INSTALL.md": "docs/INSTALL.md",
+    "HARDWARE-TESTING.md": "docs/HARDWARE-TESTING.md",
+    "TROUBLESHOOTING.md": "docs/TROUBLESHOOTING.md",
+    "bandwatch-test-round.sh": "scripts/bandwatch-test-round.sh",
+}
+
+
+def build_tester_bundle(out, produced, mtime):
+    """One zip for the first hardware tester: packages, checksums, guides."""
+    import zipfile
+
+    name = "bandwatch-%s-tester-bundle" % __version__
+    path = os.path.join(out, name + ".zip")
+    stamp = time_tuple(mtime)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in sorted(produced) + [os.path.join(out, "SHA256SUMS")]:
+            info = zipfile.ZipInfo("%s/%s" % (name, os.path.basename(p)), stamp)
+            info.external_attr = 0o644 << 16
+            with open(p, "rb") as fh:
+                zf.writestr(info, fh.read(), zipfile.ZIP_DEFLATED)
+        for arc, src in sorted(TESTER_DOCS.items()):
+            info = zipfile.ZipInfo("%s/%s" % (name, arc), stamp)
+            info.external_attr = (0o755 if arc.endswith(".sh") else 0o644) << 16
+            with open(os.path.join(ROOT, src), "rb") as fh:
+                zf.writestr(info, fh.read(), zipfile.ZIP_DEFLATED)
+    return path
+
+
+def time_tuple(ts):
+    import time as _time
+
+    t = _time.gmtime(max(ts, 315532800))
+    return (t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec)
 
 
 if __name__ == "__main__":

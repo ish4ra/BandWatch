@@ -13,7 +13,8 @@ config bandwatch 'main'
 	# Logical OpenWrt interface used to resolve 'lan' and the LAN bridge
 	option lan_interface 'lan'
 	# Client networks allowed to connect: 'private' (RFC1918, ULA,
-	# link-local, loopback, CGNAT), CIDR ranges, or 'any'
+	# link-local, loopback), CIDR ranges (e.g. '100.64.0.0/10' for a
+	# tailnet), or 'any'
 	list allowed_networks 'private'
 	# 'password' (recommended) or 'none' (only allowed with loopback)
 	option auth 'password'

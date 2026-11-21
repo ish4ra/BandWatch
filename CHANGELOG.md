@@ -8,6 +8,38 @@ All notable changes to BandWatch are documented here. The format follows
 
 First beta candidate for hardware testing. Not yet verified on a physical router.
 
+### Pre-beta audit (fixed)
+- Demo mode showed the host computer's disk usage and private paths on the
+  Health page; simulated routers now only report simulated filesystems, and
+  the BandWatch database size is shown separately from filesystem usage.
+- Timezones are shown as `UTC+05:30` / `Asia/Colombo (UTC+05:30)` instead of
+  raw POSIX strings.
+- aria2 page: Today and This month summary cards.
+- Slow Bandix/aria2/ubus calls or database flushes could delay WAN sampling;
+  collection now uses separate WAN and provider threads, and flushes no
+  longer block sample accumulation.
+- Range queries starting mid-quarter after 1-minute retention dropped data.
+- Out-of-range numbers or malformed replies from Bandix/aria2/ubus/vnStat
+  could abort a collector cycle; parsing is now strict and type-checked.
+- `listen 'lan'` combined with `listen 'any'` failed with "address in use".
+- LuCI could not embed the dashboard when LuCI used a non-default port.
+- Security: provider endpoints limited to the router (SSRF / secret
+  exfiltration), aria2 secret bound to its endpoint, CGNAT no longer
+  trusted by default, LuCI SSO requires the write ACL, safer ownership
+  handling in the init script and rpcd helper, purge guard, bounded
+  password checks. See docs/SECURITY-AUDIT.md.
+- aria2: data present when a task is first seen (resumed data, downloads
+  completed between polls) is reported as "not counted".
+- Bandix: `/api/version` fallback and pre-0.12.7 long field names.
+
+### Added during the audit
+- Optional HTTPS with a self-signed certificate created by `px5g`.
+- Optional apk signing in `scripts/build.py` / CI (no keys in the repository).
+- Feed Makefiles build from the local tree; validated in the OpenWrt 25.12 SDK.
+- Tester bundle with Sinhala guide and `bandwatch-test-round.sh`.
+- Tests: regression and hardening suites, hostile-name XSS scenario, real
+  LuCI end-to-end test, Firefox/WebKit and SDK jobs in CI.
+
 ### Added
 - WAN collector based on interface counters with ubus/route-based detection,
   explicit overrides, IPv4/IPv6, multi-WAN, tunnel and PPPoE double-count

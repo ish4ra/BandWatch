@@ -44,15 +44,25 @@ BandWatch is architecture independent (pure Python, `noarch`/`all`).
 
 | Provider | Version | Status |
 | --- | --- | --- |
-| Bandix | 0.12.x API (README v0.12.11 schema) | Fixture + simulation; **real 0.12.12 response must be verified** |
+| Bandix | 0.12.x API (README v0.12.11 schema; upstream LuCI labels rx = Download) | Fixture + simulation; **real 0.12.12 response and rx/tx direction must be verified on hardware** |
 | nlbwmon | `nlbw -c json -g mac` | Unit-tested with fixture output |
 | aria2 | 1.35+ JSON-RPC | Simulated and unit-tested |
 | vnStat | 2.x JSON (`jsonversion` 1 and 2) | Fixture-tested |
-| LuCI | `luci-base` 24.10 / 25.12 JS views, rpcd | rpcd plugin container-tested; view not rendered in a real LuCI yet |
+| LuCI | `luci-base` 25.12 JS views, rpcd | End-to-end tested in a real LuCI 25.12 (uhttpd + rpcd) container: menu, embedded SSO, new-tab SSO, token replay rejected; 24.10 LuCI not yet rendered |
+
+## Packaging
+
+| Item | Status |
+| --- | --- |
+| Feed Makefiles (`openwrt/bandwatch`, `openwrt/luci-app-bandwatch`) | Built with the OpenWrt 25.12.0 SDK (x86-64); SDK packages installed and ran in the 25.12 container |
+| apk v3 packages (`scripts/build.py`) | Installed with OpenWrt apk 3.0.2; optional signing verified with OpenWrt's apk using a throwaway key |
+| ipk packages | Installed with opkg on 24.10.4 |
 
 ## Browsers
 
-Chromium (automated tests). Firefox and Safari are expected to work
+Chromium (automated locally and in CI); Firefox and WebKit (automated in CI
+only — the browser downloads are blocked in the development sandbox).
+Safari on iOS/macOS is expected to work
 (standard ES2020, CSS `color-mix()` requires Safari ≥ 16.2 / Firefox ≥ 113 /
 Chrome ≥ 111). PWA installation requires HTTPS (or localhost).
 

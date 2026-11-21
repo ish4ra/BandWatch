@@ -49,10 +49,16 @@ shellcheck -s sh --severity=warning scripts/*.sh scripts/pkg/* tests/openwrt/run
 cd tests/frontend && npm install && npx playwright install chromium && cd ../..
 node tests/frontend/ui-test.js
 
+BROWSER=firefox node tests/frontend/ui-test.js   # also: webkit (needs those Playwright browsers)
+
 # Packaging and OpenWrt container integration
-python3 scripts/build.py                # dist/: tar.gz, ipk, apk (apk needs Docker or apk mkpkg)
+python3 scripts/build.py                # dist/: tar.gz, ipk, apk, tester bundle (apk needs Docker or apk mkpkg)
 sh tests/openwrt/run.sh x86-64-25.12.0  # procd/ubus/rpcd in an OpenWrt rootfs
 sh tests/openwrt/run.sh x86-64-24.10.4
+sh tests/openwrt/luci.sh                # real LuCI + Playwright (SSO embed, new tab, replay)
+
+# Optional apk signing (never commit keys)
+BANDWATCH_APK_SIGN_KEY=/secure/path/bandwatch.priv.pem python3 scripts/build.py
 ```
 
 Test layout:
@@ -64,8 +70,11 @@ Test layout:
 | `tests/test_collectors.py` | parsers, WAN detection and double-count avoidance, resets/reconnects, Bandix schema and direction, provider fallback, aria2 accounting/restart/outage/secret, identity, vnStat |
 | `tests/test_engine_api.py` | engine with the simulator, API validation, diagnostics sanitisation, all demo scenarios, restart gap recovery |
 | `tests/test_server.py` | HTTP security: auth, CSRF, Origin, Host allowlist, traversal, body limits, secrets, rate limiting, SSO, port conflicts |
+| `tests/test_regressions.py` | audit regressions: demo host-storage leak, timezone labels, aria2 today/month, device periods and custom ranges |
+| `tests/test_hardening.py` | SSRF limits, secret binding, CGNAT, SSO ACL, HTTPS, malformed upstream data, slow providers, flush concurrency, 2-day run, concurrent clients, SIGKILL recovery |
 | `tests/frontend/ui-test.js` | all views at 3 viewport sizes, overflow, console/CSP errors, interactions, login, empty states |
-| `tests/openwrt/run.sh` | installer, procd service, unprivileged user, ubus ACL, rpcd SSO, upgrade, rollback, uninstall/purge, apk/ipk |
+| `tests/openwrt/run.sh` | installer, procd service, unprivileged user, ubus ACL, rpcd SSO, HTTPS, upgrade, rollback, uninstall/purge, apk/ipk |
+| `tests/openwrt/luci.sh` + `luci-e2e.js` | real LuCI: login, menu, embedded dashboard via SSO, new-tab SSO, token replay |
 
 The OpenWrt container test image grafts a musl Python from the official
 `python:3.13-alpine` image into the OpenWrt rootfs, because the OpenWrt
@@ -80,8 +89,23 @@ Alpine edge (apk-tools ≥ 3.0) when Docker is available. Packages are
 unsigned; signing should be added by the maintainer before a public release.
 
 `openwrt/bandwatch/Makefile` and `openwrt/luci-app-bandwatch/Makefile` are
-feed Makefiles for building inside an OpenWrt SDK. They have not been built
-in an SDK yet.
+feed Makefiles that build from the local tree (no download, no LuCI feed
+needed). Validated with the OpenWrt 25.12.0 SDK (CI job `sdk-build`):
+
+```sh
+echo "src-link bandwatch /path/to/BandWatch/openwrt" >> feeds.conf
+./scripts/feeds update bandwatch && ./scripts/feeds install -a -p bandwatch
+make package/bandwatch/compile package/luci-app-bandwatch/compile
+```
+
+Signing: OpenWrt 25.12 trusts apk packages signed with a key whose public
+part is in `/etc/apk/keys/`. `scripts/build.py` signs with OpenWrt's own apk
+(from the SDK image) when `BANDWATCH_APK_SIGN_KEY` points to a private key;
+in CI, set the repository secret `BANDWATCH_APK_SIGN_KEY_PEM`. Generate a key
+on a trusted machine (`openssl ecparam -name prime256v1 -genkey -noout -out
+bandwatch.priv.pem`; public: `openssl ec -in bandwatch.priv.pem -pubout -out
+bandwatch.pem`) and never commit it. apk-tools from Alpine produced
+signatures OpenWrt's apk did not accept in testing, hence the SDK image.
 
 ## Code layout
 

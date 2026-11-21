@@ -8,6 +8,16 @@ files.
 
 Legend: ☐ not run · ✅ pass · ⚠️ pass with notes · ❌ fail
 
+**Helper:** `bandwatch-test-round.sh` (in the tester bundle) collects most of
+the evidence in one go and never changes the router:
+
+```sh
+sh bandwatch-test-round.sh before   # before installing (config fingerprint)
+sh bandwatch-test-round.sh after    # after testing: status, sanitised Bandix sample, diagnostics, config compare
+sh bandwatch-test-round.sh perf     # 5-minute CPU/RSS measurement (dashboard closed)
+sh bandwatch-test-round.sh report   # tarball for the maintainer (run before rebooting)
+```
+
 ## A. Preparation
 - ☐ Router configuration backup created (LuCI → Backup)
 - ☐ `cat /etc/openwrt_release` and `df -h /overlay` recorded
@@ -83,6 +93,12 @@ Legend: ☐ not run · ✅ pass · ⚠️ pass with notes · ❌ fail
 - ☐ Dark/light/system theme switch
 - ☐ Units (Mbps vs MB/s, GB vs GiB) applied everywhere
 - ☐ CSV export opens in a spreadsheet with correct local times
+
+## H2. Optional HTTPS (only if time permits)
+- ☐ `apk add python3-openssl` (if missing), `uci set bandwatch.main.https=1; uci commit bandwatch; /etc/init.d/bandwatch restart`
+- ☐ `https://<lan-ip>:8787/` works after accepting the certificate; LuCI page embeds it
+- ☐ `ls -l /etc/bandwatch/tls` shows `key.pem` as `-rw-------`
+- ☐ Switch back: `uci set bandwatch.main.https=0; uci commit bandwatch; /etc/init.d/bandwatch restart`
 
 ## I. Security
 - ☐ API returns 401 without login; login rate-limits after repeated failures

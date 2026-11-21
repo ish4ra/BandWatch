@@ -20,7 +20,7 @@ bandwatch-diag            # sanitised report in /tmp
 | Login says no password configured | first install via package | `bandwatch passwd` |
 | Forgot password | — | `bandwatch passwd` on the router |
 | LuCI page: "not running" | service stopped | `/etc/init.d/bandwatch start` |
-| LuCI over HTTPS: no embedded dashboard | browsers block HTTP frames in HTTPS pages | use "Open BandWatch in a new tab" |
+| LuCI over HTTPS: no embedded dashboard | browsers block HTTP frames in HTTPS pages | use "Open BandWatch in a new tab", or enable `option https '1'` for BandWatch |
 | WAN collector *unavailable* | no default route (WAN down) or ubus not readable | check `ip route`; set **Settings → WAN interfaces** manually |
 | WAN shows tunnel device only | only a VPN has a default route | select the physical WAN in Settings |
 | Per-device: "No supported per-device provider" | Bandix/nlbwmon not installed or not reachable | install/start Bandix; check `curl -s http://127.0.0.1:8686/api/system/info` |
@@ -28,6 +28,10 @@ bandwatch-diag            # sanitised report in /tmp
 | Device totals lower than WAN | router's own traffic (aria2, updates, DNS), offloaded flows, or devices behind NAT | expected; see "Router & unattributed" |
 | aria2 *error: rejected … check the RPC secret* | secret missing/wrong | enter the `rpc-secret` in Settings → aria2 |
 | aria2 *unavailable* | RPC disabled or different port | enable RPC in aria2; set the URL in Settings |
+| Settings: "only endpoints on this router (127.0.0.1) are allowed" | Bandix/aria2 URL points to another host | keep providers on the router, or set `option allow_lan_providers '1'` |
+| aria2 secret disappeared | the aria2 URL was changed (secrets are bound to their endpoint) | enter the secret again |
+| aria2: "task(s) already had … not counted" | resumed data, or a download that started and finished between two polls | expected; lower the aria2 polling interval for more coverage |
+| HTTPS enabled but service does not start | `python3-openssl` or `px5g` missing | `apk add python3-openssl px5g-mbedtls`; `logread -e bandwatch` |
 | History has gaps | BandWatch not running, reboot, provider outage | gaps are intentional (unmeasured ≠ zero) |
 | "Recovered WAN traffic … (timing estimated)" | service restarted without reboot | normal; bytes are exact, timing within the gap is spread evenly |
 | Database "recreated" warning | damaged file (e.g. power loss during write) | damaged copy kept as `bandwatch.db.corrupt-*`; attach `bandwatch-diag` to an issue |

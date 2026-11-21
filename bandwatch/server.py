@@ -28,6 +28,10 @@ from .auth import SESSION_TTL
 MAX_BODY = 64 * 1024
 MAX_WORKERS = 32
 MAX_STREAMS = 8
+# Browsers allow ~6 HTTP/1.1 connections per host, shared by all tabs. Each
+# live stream holds one, so more than two per client would starve page loads
+# in other tabs; extra tabs fall back to short polling requests instead.
+MAX_STREAMS_PER_CLIENT = 2
 STREAM_LIFETIME = 900
 COOKIE = "bw_session"
 
@@ -106,6 +110,7 @@ class App:
         self.service = service
         self.web_root = os.path.realpath(web_root or service.web_root or default_web_root())
         self.streams = 0
+        self.client_streams = {}
         self.stream_lock = threading.Lock()
         self.allowed = []
         self.allow_any = False
@@ -444,10 +449,12 @@ def make_handler(app):
             self._send(200, text, ctype, {"Content-Disposition": 'attachment; filename="%s"' % safe})
 
         def _stream(self):
+            client = self.client_address[0]
             with app.stream_lock:
-                if app.streams >= MAX_STREAMS:
+                if app.streams >= MAX_STREAMS or app.client_streams.get(client, 0) >= MAX_STREAMS_PER_CLIENT:
                     raise api.ApiError(503, "too many live streams; falling back to polling")
                 app.streams += 1
+                app.client_streams[client] = app.client_streams.get(client, 0) + 1
             try:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -481,6 +488,11 @@ def make_handler(app):
             finally:
                 with app.stream_lock:
                     app.streams -= 1
+                    left = app.client_streams.get(client, 1) - 1
+                    if left > 0:
+                        app.client_streams[client] = left
+                    else:
+                        app.client_streams.pop(client, None)
 
         # -- static files ------------------------------------------------------------
 

@@ -210,3 +210,18 @@ def test_port_conflict_reported(srv):
 
     with pytest.raises(RuntimeError, match="already in use"):
         serve2(srv["app"], ["127.0.0.1"], srv["port"])
+
+
+def test_live_streams_limited_per_client(srv):
+    cookie, _ = login(srv["port"])
+    conns = []
+    statuses = []
+    for _ in range(3):
+        c = http.client.HTTPConnection("127.0.0.1", srv["port"], timeout=10)
+        c.request("GET", "/api/live/stream", headers={"Host": "127.0.0.1", "Cookie": cookie})
+        r = c.getresponse()
+        statuses.append(r.status)
+        conns.append(c)
+    assert statuses == [200, 200, 503]  # third tab falls back to polling
+    for c in conns:
+        c.close()

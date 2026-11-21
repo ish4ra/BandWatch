@@ -100,7 +100,9 @@ opkg install /tmp/bandwatch_0.1.0~beta1-1_all.ipk /tmp/luci-app-bandwatch_0.1.0~
 bandwatch passwd
 ```
 
-`--allow-untrusted` is needed because beta packages are not signed yet.
+`--allow-untrusted` is needed because beta packages are not signed yet. If
+the maintainer publishes signed packages, install the provided public key
+once (`cp bandwatch.pem /etc/apk/keys/`) and omit `--allow-untrusted`.
 
 ## 5. First use
 
@@ -123,6 +125,16 @@ allowed client networks, data directory, service user). After editing:
 
 Everything else is configured in the dashboard and stored in
 `/etc/bandwatch/settings.json`.
+
+Optional settings in `/etc/config/bandwatch`:
+
+* `option https '1'` serves the dashboard over HTTPS with a self-signed
+  certificate that BandWatch creates with OpenWrt's `px5g` (requires
+  `python3-openssl`; uhttpd/LuCI are not changed). Your browser will ask you
+  to accept the certificate once.
+* `option allow_lan_providers '1'` allows Bandix/aria2 endpoints on another
+  LAN host. By default only endpoints on the router itself are accepted.
+* `option port '8790'` changes the dashboard port.
 
 To keep flash writes low on very small routers you can move the data
 directory to USB storage (`option data_dir '/mnt/usb/bandwatch'`). Note that
