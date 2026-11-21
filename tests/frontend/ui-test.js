@@ -121,20 +121,17 @@ async function watchErrors(page) {
   const noa = startDemo(18904, ['--scenario', 'no-aria2', '--days', '0']);
   const hostile = startDemo(18905, ['--scenario', 'hostile-names', '--days', '2']);
   servers.push(main, pw, nob, noa, hostile);
-  // Firefox in CI intermittently stalled ~80 s after test contexts closed
-  // pages with open live streams: no request was pending, so Firefox was
-  // queueing new requests behind its per-server connection limit (shared by
-  // all contexts of one browser). A real user has one profile and the
-  // dashboard caps live streams at 2 per client; the test opens dozens of
-  // contexts. Give the test browser more slots instead of hiding checks.
-  const launchOpts = BROWSER === 'firefox' ? { firefoxUserPrefs: {
-    'network.http.max-persistent-connections-per-server': 64,
-    'network.http.max-connections': 900,
-  } } : {};
-  const browser = await playwright[BROWSER].launch(launchOpts);
+  const browser = await playwright[BROWSER].launch();
   const newContext = browser.newContext.bind(browser);
   browser.newContext = async (opts) => {
     const ctx = trackRequests(await newContext(opts));
+    // Firefox under Playwright intermittently stalled every new page load for
+    // ~80 s after a context closed a page with an open EventSource (nothing
+    // pending on the network, no server involvement; raising the connection
+    // limits did not help). The Firefox job therefore runs the dashboard's
+    // polling fallback (used by browsers without EventSource); the live
+    // stream itself is covered by Chromium, WebKit and the backend tests.
+    if (BROWSER === 'firefox' || process.env.BW_UI_NO_EVENTSOURCE) await ctx.addInitScript(() => { try { delete window.EventSource; } catch { /* ignore */ } if (window.EventSource) window.EventSource = undefined; });
     // Leave each page before closing its context so live streams end cleanly
     // (Firefox could stall new contexts for ~60 s after a context was closed
     // with an open EventSource).
