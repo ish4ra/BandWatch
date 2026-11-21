@@ -19,10 +19,22 @@ chown bandwatch:bandwatch "$data_dir" 2>/dev/null
 # Load the ubus ACL that lets the unprivileged service read interface state.
 killall -HUP ubusd 2>/dev/null
 
+# procd is controlled over ubus: make sure ubus answers before (re)starting,
+# otherwise the start request can be lost on a busy system.
+wait_ubus() {
+	i=0
+	while ! ubus list >/dev/null 2>&1 && [ $i -lt 15 ]; do sleep 1; i=$((i + 1)); done
+}
+wait_ubus
 /etc/init.d/bandwatch enable
 if /etc/init.d/bandwatch running >/dev/null 2>&1; then
 	/etc/init.d/bandwatch restart
 else
+	/etc/init.d/bandwatch start
+fi
+sleep 1
+if ! /etc/init.d/bandwatch running >/dev/null 2>&1; then
+	wait_ubus
 	/etc/init.d/bandwatch start
 fi
 

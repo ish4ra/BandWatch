@@ -22,7 +22,17 @@ failt() { echo "FAIL: $*"; FAILS=$((FAILS + 1)); }
 # Readiness probe used after package installs (service start time varies by machine).
 WAIT_UP='i=0; until /etc/init.d/bandwatch running && wget -q -T 2 -O /dev/null http://127.0.0.1:8787/api/session; do i=$((i+1)); [ $i -ge 30 ] && exit 1; sleep 1; done'
 
-check() { desc="$1"; shift; if docker exec "$NAME" sh -c "$*" >/tmp/bw-it-out.$$ 2>&1; then pass "$desc"; else failt "$desc"; sed 's/^/    /' /tmp/bw-it-out.$$ | tail -20; fi; }
+check() {
+	desc="$1"; shift
+	if docker exec "$NAME" sh -c "$*" >/tmp/bw-it-out.$$ 2>&1; then
+		pass "$desc"
+	else
+		failt "$desc"
+		sed 's/^/    /' /tmp/bw-it-out.$$ | tail -20
+		echo "    --- recent system log:"
+		docker exec "$NAME" sh -c 'logread | tail -n 25' 2>&1 | sed 's/^/    /'
+	fi
+}
 
 docker build -q --build-arg OPENWRT_TAG="$TAG" -t "$IMG" "$ROOT/tests/openwrt" >/dev/null
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -f /tmp/bw-it-out.$$; }
