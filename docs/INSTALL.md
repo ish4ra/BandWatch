@@ -1,0 +1,155 @@
+# Installing BandWatch
+
+This guide assumes no prior OpenWrt experience. Every step that changes
+something on the router is marked **(changes the router)**. Steps not marked
+only read information.
+
+> BandWatch v0.1.0-beta.1 is a **beta**. It has been tested in OpenWrt
+> 24.10 / 25.12 containers but not yet on physical hardware. Keep a backup of
+> your router configuration (LuCI → System → Backup / Flash Firmware →
+> *Generate archive*) before installing beta software.
+
+## 1. What you need
+
+| Item | Notes |
+| --- | --- |
+| OpenWrt **25.12** (apk) or **24.10** (opkg) | Older releases may work but are untested |
+| Python 3 packages | `python3-light`, `python3-sqlite3`, `python3-urllib` (~6–8 MB of flash). `python3-openssl` is optional (faster password checks) |
+| ~3 MB free storage | for BandWatch itself; its database grows to a few MB over months |
+| SSH access | from Windows use the built-in `ssh`/`scp` in PowerShell, or PuTTY/WinSCP |
+| Optional | Bandix (per-device usage), aria2 with RPC enabled, vnStat, LuCI |
+
+Check your version and free space:
+
+```sh
+ssh root@192.168.1.1          # use your router's address
+cat /etc/openwrt_release
+df -h /overlay
+```
+
+## 2. Download
+
+From the GitHub Actions run of the pull request (or a release once
+published), download the `bandwatch-beta` artifact and unzip it. It
+contains:
+
+| File | Use it for |
+| --- | --- |
+| `bandwatch-0.1.0-beta.1-openwrt.tar.gz` | **Recommended.** Installer with checks, backup and rollback |
+| `bandwatch-0.1.0_beta1-r1.apk`, `luci-app-bandwatch-0.1.0_beta1-r1.apk` | OpenWrt 25.12 package manager |
+| `bandwatch_0.1.0~beta1-1_all.ipk`, `luci-app-bandwatch_0.1.0~beta1-1_all.ipk` | OpenWrt 24.10 package manager |
+| `SHA256SUMS` | integrity check |
+
+Verify the download on your computer (Linux/macOS: `sha256sum -c SHA256SUMS`;
+Windows PowerShell: `Get-FileHash bandwatch-*.tar.gz` and compare).
+
+## 3. Install with the installer (recommended)
+
+```sh
+# on your computer
+scp -O bandwatch-0.1.0-beta.1-openwrt.tar.gz root@192.168.1.1:/tmp/
+
+# on the router
+cd /tmp
+tar -xzf bandwatch-0.1.0-beta.1-openwrt.tar.gz
+cd bandwatch-0.1.0-beta.1
+sh install.sh --dry-run
+```
+
+The dry run only reads the system and prints `[ OK ]`, `[WARN]` or `[FAIL]`
+lines. Fix any `[FAIL]` first. If Python is missing it shows the exact
+command, for example `apk update && apk add python3-light python3-sqlite3 python3-urllib`.
+
+Then **(changes the router)**:
+
+```sh
+sh install.sh                  # or: sh install.sh --install-deps
+```
+
+The installer:
+
+1. verifies archive checksums and repeats the checks;
+2. backs up any previous BandWatch version to `/tmp/bandwatch-rollback-*.tar.gz`;
+3. copies files, creates the unprivileged `bandwatch` user, loads its ubus
+   permission file and enables the service;
+4. waits until the dashboard answers — if it does not, it **rolls back**
+   automatically;
+5. prints the dashboard address and a random password.
+
+Options: `--port 8790` (different port), `--no-luci`, `--no-start`,
+`--install-deps`.
+
+It never changes firewall, DNS, DHCP, Wi-Fi, routing, offloading or other
+monitoring tools.
+
+## 4. Install with the package manager (alternative)
+
+OpenWrt 25.12:
+
+```sh
+apk update && apk add python3-light python3-sqlite3 python3-urllib
+apk add --allow-untrusted /tmp/bandwatch-0.1.0_beta1-r1.apk /tmp/luci-app-bandwatch-0.1.0_beta1-r1.apk
+bandwatch passwd
+```
+
+OpenWrt 24.10:
+
+```sh
+opkg update && opkg install python3-light python3-sqlite3 python3-urllib
+opkg install /tmp/bandwatch_0.1.0~beta1-1_all.ipk /tmp/luci-app-bandwatch_0.1.0~beta1-1_all.ipk
+bandwatch passwd
+```
+
+`--allow-untrusted` is needed because beta packages are not signed yet.
+
+## 5. First use
+
+* Open `http://<router-ip>:8787/` and sign in, **or** open
+  **LuCI → Status → BandWatch** (signs you in automatically).
+* Change the password in **Settings → Security** or with `bandwatch passwd`.
+* Check **Health → Collectors**: WAN should be *Working*. Per-device data
+  needs Bandix (or nlbwmon); aria2 needs its RPC secret in
+  **Settings → aria2**.
+* Set your timezone source and (optionally) a monthly quota in Settings.
+
+## 6. Configuration
+
+Service options live in `/etc/config/bandwatch` (port, listen addresses,
+allowed client networks, data directory, service user). After editing:
+
+```sh
+/etc/init.d/bandwatch restart
+```
+
+Everything else is configured in the dashboard and stored in
+`/etc/bandwatch/settings.json`.
+
+To keep flash writes low on very small routers you can move the data
+directory to USB storage (`option data_dir '/mnt/usb/bandwatch'`). Note that
+a database on a spinning disk keeps that disk awake.
+
+## 7. Upgrade
+
+Run the newer installer the same way; data, settings and password are kept,
+and the previous version is backed up. With packages: `apk add --allow-untrusted <new.apk>`
+or `opkg install <new.ipk>`.
+
+`/etc/config/bandwatch` and `/etc/bandwatch/` are listed in
+`/lib/upgrade/keep.d/bandwatch`, so they survive a firmware sysupgrade that
+keeps settings (Python and BandWatch must be reinstalled afterwards).
+
+## 8. Uninstall
+
+```sh
+cd /tmp/bandwatch-0.1.0-beta.1
+sh uninstall.sh              # removes the program, KEEPS history and settings
+sh uninstall.sh --purge      # also deletes /etc/bandwatch and /etc/config/bandwatch
+```
+
+Package installs: `apk del luci-app-bandwatch bandwatch` or
+`opkg remove luci-app-bandwatch bandwatch` (data is kept).
+
+## 9. Getting help
+
+Run `bandwatch-diag` and attach the generated file (review it first — it is
+already sanitised) to a GitHub issue. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

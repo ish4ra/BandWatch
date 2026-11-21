@@ -1,0 +1,49 @@
+#!/bin/sh
+# rpcd plugin for luci-app-bandwatch. Runs as root for LuCI users that hold
+# the "luci-app-bandwatch" ACL. It only reports status and issues one-time
+# sign-on tokens; it never changes system configuration.
+
+RUN_DIR=/var/run/bandwatch
+
+json_port() {
+	port=$(uci -q get bandwatch.main.port)
+	case "$port" in ''|*[!0-9]*) port=8787 ;; esac
+	echo "$port"
+}
+
+random_token() {
+	if [ -r /dev/urandom ]; then
+		head -c 24 /dev/urandom | hexdump -v -e '/1 "%02x"' 2>/dev/null && return
+		head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'
+	fi
+}
+
+case "$1" in
+	list)
+		echo '{ "status": {}, "sso": {} }'
+		;;
+	call)
+		case "$2" in
+			status)
+				running=false
+				/etc/init.d/bandwatch running >/dev/null 2>&1 && running=true
+				enabled=$(uci -q get bandwatch.main.enabled || echo 1)
+				version=$(cat /usr/lib/bandwatch/VERSION 2>/dev/null | tr -cd '0-9A-Za-z.~+_-')
+				printf '{ "running": %s, "enabled": "%s", "port": %s, "version": "%s" }\n' \
+					"$running" "$(echo "$enabled" | tr -cd '01')" "$(json_port)" "$version"
+				;;
+			sso)
+				token=$(random_token)
+				if [ ${#token} -lt 32 ] || ! [ -d "$RUN_DIR/sso" ]; then
+					echo '{ "error": "BandWatch is not running" }'
+					exit 0
+				fi
+				umask 077
+				: > "$RUN_DIR/sso/$token"
+				owner=$(uci -q get bandwatch.main.user || echo bandwatch)
+				grep -q "^${owner}:" /etc/passwd && chown "$owner:$owner" "$RUN_DIR/sso/$token" 2>/dev/null
+				printf '{ "token": "%s", "port": %s }\n' "$token" "$(json_port)"
+				;;
+		esac
+		;;
+esac

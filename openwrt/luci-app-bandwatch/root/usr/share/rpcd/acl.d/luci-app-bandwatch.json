@@ -1,0 +1,10 @@
+{
+	"luci-app-bandwatch": {
+		"description": "Open the BandWatch traffic dashboard",
+		"read": {
+			"ubus": {
+				"luci.bandwatch": [ "status", "sso" ]
+			}
+		}
+	}
+}

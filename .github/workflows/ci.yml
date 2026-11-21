@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --upgrade pip pytest
+      - name: Run tests
+        run: python -m pytest -q
+
+  lint-security:
+    name: Lint and security checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install ruff bandit
+      - name: Ruff
+        run: ruff check bandwatch scripts tests
+      - name: Bandit (security linter)
+        run: bandit -c pyproject.toml -r bandwatch scripts
+      - name: ShellCheck (POSIX sh / BusyBox ash)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -s sh --severity=warning scripts/*.sh scripts/pkg/* tests/openwrt/run.sh \
+            openwrt/bandwatch/files/usr/bin/bandwatch openwrt/bandwatch/files/etc/init.d/bandwatch \
+            openwrt/luci-app-bandwatch/root/usr/libexec/rpcd/luci.bandwatch
+      - name: Security-sensitive code checks
+        run: sh scripts/ci-security-checks.sh
+
+  frontend:
+    name: Dashboard end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright
+        working-directory: tests/frontend
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run UI tests
+        run: node tests/frontend/ui-test.js
+
+  package:
+    name: Build beta packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [backend, lint-security]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build (tar.gz, ipk, apk v3)
+        run: python scripts/build.py
+      - name: Verify artefacts
+        run: |
+          set -e
+          cd dist
+          ls -la
+          test -f bandwatch-*-openwrt.tar.gz
+          test -f bandwatch_*_all.ipk && test -f luci-app-bandwatch_*_all.ipk
+          test -f bandwatch-*.apk && test -f luci-app-bandwatch-*.apk
+          sha256sum -c SHA256SUMS
+          tar -tzf bandwatch-*-openwrt.tar.gz | grep -q install.sh
+          docker run --rm -v "$PWD:/d:ro" alpine:edge sh -c 'apk adbdump /d/bandwatch-*.apk | head -20'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bandwatch-beta
+          path: |
+            dist/*.tar.gz
+            dist/*.ipk
+            dist/*.apk
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+  openwrt-integration:
+    name: OpenWrt container test (${{ matrix.tag }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [package]
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ["x86-64-25.12.0", "x86-64-24.10.4"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bandwatch-beta
+          path: dist
+      - name: Install, service, ACL, SSO, upgrade, rollback, uninstall
+        run: sh tests/openwrt/run.sh "${{ matrix.tag }}"

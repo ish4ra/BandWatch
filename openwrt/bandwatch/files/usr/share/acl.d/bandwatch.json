@@ -1,0 +1,8 @@
+{
+	"user": "bandwatch",
+	"access": {
+		"network.interface": { "methods": [ "dump", "status" ] },
+		"network.interface.*": { "methods": [ "status" ] },
+		"hostapd.*": { "methods": [ "get_clients" ] }
+	}
+}

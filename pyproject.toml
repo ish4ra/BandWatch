@@ -1,0 +1,40 @@
+[project]
+name = "bandwatch"
+version = "0.1.0b1"
+description = "Lightweight, privacy-focused traffic monitor for OpenWrt routers"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+readme = "README.md"
+
+[tool.ruff]
+line-length = 250
+target-version = "py39"
+extend-exclude = ["dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "S", "UP", "PL", "RUF"]
+ignore = [
+  "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLW0603", "PLC0415",
+  "S101",    # asserts in tests
+  "S603", "S607", "S404", # fixed-argv subprocess calls without a shell (reviewed)
+  "S310",    # urllib not used for user URLs
+  "S311",    # random only used by the demo simulator
+  "S104",    # 'any' listen is explicit opt-in
+  "S608",    # SQL is built only from internal constants (column/table names); values are always bound parameters
+  "S108",    # fixed OpenWrt paths under /tmp are read, never created
+  "S110", "S103", "PLR0917", "RUF046", "PLW1510", "PLW2901", "B007", "RUF059",
+  "UP031", "UP032", "UP008", "RUF005", "RUF012", "RUF001", "RUF003", "B905", "E731",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "PLR", "B011", "E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[tool.bandit]
+exclude_dirs = ["tests", "dist"]
+# B608: SQL fragments are internal constants; B108: fixed OpenWrt paths are only read;
+# B110/B103: reviewed (best-effort cleanup, executable package files).
+skips = ["B404", "B603", "B607", "B311", "B104", "B608", "B108", "B110", "B103"]

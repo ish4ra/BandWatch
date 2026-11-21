@@ -1,0 +1,11 @@
+{"status": "success", "data": {"d": [
+ {"ip4": "192.168.1.20", "ip6": ["fe80::21a:2bff:fe00:11", "fd00::20"], "mac": "00:1A:2B:00:00:11", "host": "living-room-tv", "conn": "wired", "uplink": "lan1", "w_ch": 0, "w_freq": 0,
+  "t_rx_b": 5000000, "t_tx_b": 600000, "t_rx_r": 120000, "t_tx_r": 4000, "w_rx_l": 0, "w_tx_l": 0,
+  "l_rx_b": 1000000, "l_tx_b": 100000, "l_rx_r": 20000, "l_tx_r": 1000,
+  "w_rx_b": 4000000, "w_tx_b": 500000, "w_rx_r": 100000, "w_tx_r": 3000, "last": 1795230000000},
+ {"ip4": "192.168.1.22", "ip6": [], "mac": "0a:3c:41:00:00:13", "host": "", "conn": "wifi", "uplink": "phy1-ap0", "w_ch": 36, "w_freq": 5180,
+  "t_rx_b": 900, "t_tx_b": 100, "t_rx_r": 0, "t_tx_r": 0, "w_rx_l": 0, "w_tx_l": 0,
+  "l_rx_b": 0, "l_tx_b": 0, "l_rx_r": 0, "l_tx_r": 0,
+  "w_rx_b": 900, "w_tx_b": 100, "w_rx_r": 0, "w_tx_r": 0, "last": 1795230000000},
+ {"mac": "not-a-mac", "w_rx_b": 1}
+]}}
