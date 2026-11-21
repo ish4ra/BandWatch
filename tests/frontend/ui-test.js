@@ -32,9 +32,16 @@ function record(name, ok, detail = '') {
 
 const DIAG = [];
 const PENDING = new Map(); // request -> start time, for every page of every context
+const BAD = []; // 5xx responses and failed requests, with timestamps
 
 function trackRequests(ctx) {
   ctx.on('request', (r) => PENDING.set(r, { t: Date.now(), ctx }));
+  ctx.on('response', (res) => {
+    const v = PENDING.get(res.request());
+    if (v) v.status = res.status();
+    if (res.status() >= 500) BAD.push(`${new Date().toISOString().slice(11, 23)} ${res.status()} ${res.request().method()} ${res.url()}`);
+  });
+  ctx.on('requestfailed', (r) => BAD.push(`${new Date().toISOString().slice(11, 23)} failed ${r.method()} ${r.url()} (${(r.failure() || {}).errorText})`));
   ctx.on('requestfinished', (r) => PENDING.delete(r));
   ctx.on('requestfailed', (r) => PENDING.delete(r));
   ctx.on('close', () => { for (const [r, v] of PENDING) if (v.ctx === ctx) PENDING.delete(r); });
@@ -53,8 +60,11 @@ async function check(name, fn) {
     // Requests the browser started but that never finished.
     const now = Date.now();
     // Live streams stay open by design; everything else should be short.
-    const stuck = [...PENDING.entries()].filter(([r, v]) => now - v.t > 3000 && !r.url().includes('/api/live/stream'));
-    DIAG.push(`after "${name}": ${stuck.length} request(s) pending > 3 s${stuck.map(([r, v]) => `\n  ${Math.round((now - v.t) / 1000)} s ${r.method()} ${r.url()}`).join('')}`);
+    // A request whose headers arrived (status set) is only waiting for its body;
+    // WebKit does not always report the main document as finished.
+    const stuck = [...PENDING.entries()].filter(([r, v]) => now - v.t > 3000 && v.status === undefined && !r.url().includes('/api/live/stream'));
+    DIAG.push(`after "${name}": ${stuck.length} request(s) without a response after 3 s${stuck.map(([r, v]) => `\n  ${Math.round((now - v.t) / 1000)} s ${r.method()} ${r.url()}`).join('')}`);
+    if (BAD.length) DIAG.push(`5xx / failed requests so far:\n  ${BAD.slice(-15).join('\n  ')}`);
     // Diagnostics: is the main demo server still answering the API?
     for (const port of [18901]) {
       const t0 = Date.now();
@@ -229,7 +239,15 @@ async function watchErrors(page) {
 
     await check('history: vnStat comparison on demand', async () => {
       await page.click('#vn-btn');
-      await page.waitForSelector('#vn-body table', { timeout: 10000 });
+      try {
+        await page.waitForSelector('#vn-body table', { timeout: 10000 });
+      } catch (e) {
+        const shown = await page.evaluate(() => {
+          const b = document.querySelector('#vn-body');
+          return `vn-body: ${b ? JSON.stringify(b.innerText.slice(0, 200)) : 'missing'}; hash ${location.hash}`;
+        });
+        throw new Error(`${e.message.split('\n')[0]} (${shown})`);
+      }
     });
 
     await check('settings: invalid value rejected, valid value saved', async () => {
