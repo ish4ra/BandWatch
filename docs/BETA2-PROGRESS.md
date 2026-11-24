@@ -17,7 +17,7 @@ resume without repeating work. Remove or archive it after the release.
 | 4 | Hardware compatibility and upgrade from beta.1 | done in code/docs; OpenWrt container upgrade test (`tests/openwrt/upgrade-beta1.sh`) being stabilised in CI |
 | 5 | Firefox investigation (issue #2) | root cause located in Playwright's Firefox driver; not fixed (see below) |
 | 6 | Manual update checker | done (browser-side; UI test with GitHub mocked) |
-| 7 | Final testing, packaging, docs, PR | in progress: draft PR https://github.com/ish4ra/BandWatch/pull/3 |
+| 7 | Final testing, packaging, docs, PR | done: draft PR https://github.com/ish4ra/BandWatch/pull/3, CI run 45318400933 all 12 jobs green (Firefox job still intermittent), artifacts `bandwatch-beta` / `bandwatch-tester-bundle` |
 
 ## Findings from inspection (milestone 1)
 
@@ -125,6 +125,14 @@ Remaining blocker: the lost-event race is inside Playwright's Firefox
 driver; it needs an upstream fix (report to microsoft/playwright with
 `tests/firefox-repro/repro.js uitest-keepopen-nosw`), or a Firefox test
 harness that does not depend on Playwright's navigation lifecycle.
+
+## Waiting for the maintainer
+
+- Review and merge PR #3; then run the Release workflow with tag
+  `v0.1.0-beta.2` (it builds from `main` and publishes a prerelease).
+- Ask the tester to upgrade (docs/UPGRADE-SINHALA.md) and send the
+  one-click report after ~24 h.
+- Decide on an upstream Playwright report for issue #2.
 
 ## Resume instructions
 
