@@ -4,11 +4,12 @@ All notable changes to BandWatch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0-beta.2] - unreleased (candidate)
+## [0.1.0-beta.2] - 2026-11-24 (public beta prerelease)
 
 Reliability, diagnostics and upgrade release driven by the first physical
 router snapshot (Arcadyan AW1000, OpenWrt 25.12.5). Still a beta: one
-diagnostic snapshot is not hardware acceptance.
+diagnostic snapshot of beta.1 is not hardware acceptance, and **beta.2 itself
+has not yet been tested on physical router hardware**. Packages are unsigned.
 
 ### First physical hardware result (one snapshot, not acceptance)
 - Arcadyan AW1000, OpenWrt 25.12.5 (qualcommax/ipq807x, aarch64_cortex-a53,

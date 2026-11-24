@@ -20,7 +20,7 @@ permissions:
 jobs:
   repro:
     name: Stall reproduction (${{ matrix.browser }} run ${{ matrix.run }})
-    # Rounds 1-3 are recorded in docs/BETA2-PROGRESS.md; run again on demand.
+    # Rounds 1-3 are recorded in docs/archive/beta2-development-log.md; run again on demand.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45

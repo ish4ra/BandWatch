@@ -24,6 +24,9 @@ and `SHA256SUMS`. Check the file before copying it to the router:
 
 The value must match the line for that file in `SHA256SUMS` exactly.
 
+Optional but recommended: LuCI → **System → Backup / Flash Firmware →
+Generate archive**, and keep the file on your computer.
+
 ## 2. Upgrade with the installer (recommended, same as the first install)
 
 On your computer:
@@ -69,8 +72,9 @@ Open the dashboard (or LuCI → Status → BandWatch) and reload the page once
   existing rows. Right after the restart it may say *Earlier history is
   stored; data collected since this start is saved for the first time in
   about N s* — that is normal.
-* Press **Download Diagnostic Report** and keep the ZIP file if the
-  maintainer asked for one.
+* After about 24 hours of normal use, press **Download Diagnostic Report**.
+  Open the ZIP, read `SUMMARY.txt` to confirm nothing private is in it, and
+  send the ZIP to the maintainer. No SSH, benchmarks or reboot are needed.
 
 ## Rolling back to beta.1
 

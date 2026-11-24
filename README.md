@@ -9,20 +9,20 @@
 
 BandWatch is a lightweight, local-first network intelligence dashboard for OpenWrt routers. It combines real-time bandwidth monitoring, per-device analytics, aria2 transfer statistics and router health in one interface.
 
-[![Release](https://img.shields.io/github/v/release/ish4ra/BandWatch?include_prereleases&label=release&color=34D9B3)](https://github.com/ish4ra/BandWatch/releases)
+[![Release](https://img.shields.io/github/v/release/ish4ra/BandWatch?include_prereleases&label=release&color=34D9B3)](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.2)
 [![CI](https://github.com/ish4ra/BandWatch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ish4ra/BandWatch/actions/workflows/ci.yml?query=branch%3Amain)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-24.10%20%7C%2025.12-8D9CFF)](docs/COMPATIBILITY.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-34D9B3)](LICENSE)
-[![Download](https://img.shields.io/badge/download-latest%20beta-111A27?logo=github)](https://github.com/ish4ra/BandWatch/releases)
+[![Download](https://img.shields.io/badge/download-v0.1.0--beta.2-111A27?logo=github)](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.2)
 
-[**Download**](https://github.com/ish4ra/BandWatch/releases) · [**Install**](docs/INSTALL.md) · [**Upgrade**](docs/UPGRADE.md) · [**සිංහල**](docs/INSTALL-SINHALA.md) · [**Demo**](#demo-mode) · [**Known issues**](#known-limitations)
+[**Download beta.2**](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.2) · [**Install**](docs/INSTALL.md) · [**Upgrade**](docs/UPGRADE.md) · [**සිංහල**](docs/INSTALL-SINHALA.md) · [**Demo**](#demo-mode) · [**Known issues**](#known-limitations)
 
 </div>
 
 > [!IMPORTANT]
-> **Public beta for early adopters.** Not production-ready. BandWatch passes automated tests, OpenWrt 25.12/24.10 container tests and an OpenWrt SDK build.
+> **Public beta for early adopters: v0.1.0-beta.2.** Not production-ready. BandWatch passes automated tests, OpenWrt 25.12/24.10 container tests (including upgrade and rollback from the published beta.1) and an OpenWrt SDK build. **beta.2 itself has not yet been tested on a physical router.**
 >
-> **First physical router result (one diagnostic snapshot, not hardware acceptance):** on an Arcadyan AW1000 (OpenWrt 25.12.5, qualcommax/ipq807x) beta.1 installed and ran in production mode; all six collectors reported OK; Bandix 0.12.12 reported eight devices; aria2 RPC connectivity was observed; BandWatch used 0.6 % CPU and about 17.2 MiB RSS at that moment, with no application loop errors. Traffic-accounting accuracy, sustained performance, WAN isolation and reboot recovery have **not** been verified yet.
+> **First physical router result (one beta.1 diagnostic snapshot, not a benchmark or hardware acceptance):** on an Arcadyan AW1000 (OpenWrt 25.12.5, qualcommax/ipq807x) beta.1 installed and ran in production mode; all six collectors reported OK; Bandix 0.12.12 reported eight devices; aria2 RPC connectivity was observed; BandWatch used 0.6 % CPU and about 17.2 MiB RSS at that moment, with no application loop errors. Traffic-accounting accuracy, sustained performance, WAN isolation and reboot recovery have **not** been verified yet.
 >
 > The CI badge includes one known failure: the Playwright Firefox job fails intermittently because the test driver loses page-load events ([#2](https://github.com/ish4ra/BandWatch/issues/2)); regular Firefox loads the dashboard reliably. All other checks pass.
 
@@ -97,15 +97,17 @@ The full matrix is in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 ## Download and installation
 
-Get everything from the **[v0.1.0-beta.1 release page](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1)**. No GitHub account is needed.
+Get everything from the **[v0.1.0-beta.2 release page](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.2)**. No GitHub account is needed. **Already running beta.1?** Upgrade in place without uninstalling: [UPGRADE.md](docs/UPGRADE.md) · [සිංහල](docs/UPGRADE-SINHALA.md).
 
 | File | Use it for |
 | --- | --- |
-| [`bandwatch-0.1.0-beta.1-tester-bundle.zip`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1/bandwatch-0.1.0-beta.1-tester-bundle.zip) | **Hardware testers:** packages, guides (English and Sinhala), checklist and test-round helper |
-| [`bandwatch-0.1.0-beta.1-openwrt.tar.gz`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1/bandwatch-0.1.0-beta.1-openwrt.tar.gz) | **Recommended installer** with checks, backup and automatic rollback |
-| `bandwatch-0.1.0_beta1-r1.apk`, `luci-app-bandwatch-0.1.0_beta1-r1.apk` | OpenWrt 25.12 package manager (alternative) |
-| `bandwatch_0.1.0-beta1-1_all.ipk`, `luci-app-bandwatch_0.1.0-beta1-1_all.ipk` | OpenWrt 24.10 package manager (alternative) |
-| [`SHA256SUMS`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1/SHA256SUMS) | Integrity check for all of the above |
+| [`bandwatch-0.1.0-beta.2-tester-bundle.zip`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/bandwatch-0.1.0-beta.2-tester-bundle.zip) | **Hardware testers:** packages, upgrade and install guides (English and Sinhala), checklist and optional test-round helper |
+| [`bandwatch-0.1.0-beta.2-openwrt.tar.gz`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/bandwatch-0.1.0-beta.2-openwrt.tar.gz) | **Recommended installer and upgrader** with checks, backup and automatic rollback |
+| [`bandwatch-0.1.0_beta2-r1.apk`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/bandwatch-0.1.0_beta2-r1.apk), [`luci-app-bandwatch-0.1.0_beta2-r1.apk`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/luci-app-bandwatch-0.1.0_beta2-r1.apk) | OpenWrt 25.12 package manager (alternative) |
+| [`bandwatch_0.1.0-beta2-1_all.ipk`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/bandwatch_0.1.0-beta2-1_all.ipk), [`luci-app-bandwatch_0.1.0-beta2-1_all.ipk`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/luci-app-bandwatch_0.1.0-beta2-1_all.ipk) | OpenWrt 24.10 package manager (alternative) |
+| [`SHA256SUMS`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/SHA256SUMS) | Integrity check for all of the above |
+
+The previous [v0.1.0-beta.1](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1) release stays available.
 
 Packages are **unsigned** for this beta. Verify downloads with `sha256sum -c SHA256SUMS --ignore-missing` (Linux/macOS) or `Get-FileHash <file>` (Windows PowerShell).
 
@@ -113,10 +115,10 @@ Packages are **unsigned** for this beta. Verify downloads with `sha256sum -c SHA
 
 ```sh
 # 1. On your computer: copy the installer to the router
-scp -O bandwatch-0.1.0-beta.1-openwrt.tar.gz root@192.168.1.1:/tmp/
+scp -O bandwatch-0.1.0-beta.2-openwrt.tar.gz root@192.168.1.1:/tmp/
 
 # 2. On the router (ssh root@192.168.1.1)
-cd /tmp && tar -xzf bandwatch-0.1.0-beta.1-openwrt.tar.gz && cd bandwatch-0.1.0-beta.1
+cd /tmp && tar -xzf bandwatch-0.1.0-beta.2-openwrt.tar.gz && cd bandwatch-0.1.0-beta.2
 sh install.sh --dry-run     # read-only checks, changes nothing
 sh install.sh               # installs, starts and prints a password
 ```

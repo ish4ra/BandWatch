@@ -1,10 +1,11 @@
-# v0.1.0-beta.2 development progress
+# v0.1.0-beta.2 development log (archived)
 
-Working document for the beta.2 cycle, kept so an interrupted session can
-resume without repeating work. Remove or archive it after the release.
+> **Archived after the v0.1.0-beta.2 release.** Kept as the record of the
+> beta.2 investigation (AW1000 snapshot analysis, persistence fixes, Firefox
+> issue #2 evidence). It is no longer updated.
 
 - Branch: `claude/bold-einstein-wrbcwb` (from `main` @ `a70d81d`)
-- Target: `v0.1.0-beta.2` (not published; maintainer approval required)
+- Target: `v0.1.0-beta.2` (merged via PR #3 and published as a prerelease after maintainer approval)
 - beta.1 release and tag are never modified.
 
 ## Milestones
@@ -14,10 +15,10 @@ resume without repeating work. Remove or archive it after the release.
 | 1 | Repository inspection, plan, Firefox reproduction harness | done |
 | 2 | Database reliability and diagnostic privacy | done |
 | 3 | Automatic local diagnostics and one-click report | done (UI + API + tests) |
-| 4 | Hardware compatibility and upgrade from beta.1 | done in code/docs; OpenWrt container upgrade test (`tests/openwrt/upgrade-beta1.sh`) being stabilised in CI |
-| 5 | Firefox investigation (issue #2) | root cause located in Playwright's Firefox driver; not fixed (see below) |
+| 4 | Hardware compatibility and upgrade from beta.1 | done; `tests/openwrt/upgrade-beta1.sh` passes on 25.12 (installer, apk) and 24.10 (installer, opkg) |
+| 5 | Firefox investigation (issue #2) | done as investigation: cause located in Playwright's Firefox driver; **not fixed**, accepted by the maintainer as the only beta.2 release exception; issue #2 stays open |
 | 6 | Manual update checker | done (browser-side; UI test with GitHub mocked) |
-| 7 | Final testing, packaging, docs, PR | done: draft PR https://github.com/ish4ra/BandWatch/pull/3, CI run 45318400933 all 12 jobs green (Firefox job still intermittent), artifacts `bandwatch-beta` / `bandwatch-tester-bundle` |
+| 7 | Final testing, packaging, docs, PR | done: PR https://github.com/ish4ra/BandWatch/pull/3 (PR CI 45319288003 on b349d60: 12/12 green; Firefox job remains intermittent) |
 
 ## Findings from inspection (milestone 1)
 
@@ -126,22 +127,7 @@ driver; it needs an upstream fix (report to microsoft/playwright with
 `tests/firefox-repro/repro.js uitest-keepopen-nosw`), or a Firefox test
 harness that does not depend on Playwright's navigation lifecycle.
 
-## Waiting for the maintainer
+## Release
 
-- Review and merge PR #3; then run the Release workflow with tag
-  `v0.1.0-beta.2` (it builds from `main` and publishes a prerelease).
-- Ask the tester to upgrade (docs/UPGRADE-SINHALA.md) and send the
-  one-click report after ~24 h.
-- Decide on an upstream Playwright report for issue #2.
-
-## Resume instructions
-
-1. `git fetch origin && git checkout claude/bold-einstein-wrbcwb && git pull`
-2. Read this file's milestone table; continue with the first pending one.
-3. Backend tests: `python -m pytest -q`. UI tests: `node tests/frontend/ui-test.js`
-   (needs `npm install` in `tests/frontend`).
-4. Firefox evidence: latest run of "Firefox stall investigation" workflow.
-
-## Known failures
-
-- Firefox UI job (issue #2) - inherited from beta.1, under investigation.
+Final review, merge and publication are recorded in the GitHub release
+`v0.1.0-beta.2` and in PR #3.

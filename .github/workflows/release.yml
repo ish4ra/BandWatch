@@ -12,6 +12,10 @@ on:
         description: "Release tag (must match bandwatch/__init__.py, e.g. v0.1.0-beta.2)"
         required: true
         default: v0.1.0-beta.2
+      title:
+        description: "Release title"
+        required: true
+        default: "BandWatch v0.1.0-beta.2 — Diagnostics & Reliability Update"
 
 permissions:
   contents: read
@@ -30,6 +34,7 @@ jobs:
       contents: write
     env:
       TAG: ${{ inputs.tag }}
+      TITLE: ${{ inputs.title }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +88,7 @@ jobs:
           cat SHA256SUMS
           # The tester bundle must be complete.
           list=$(unzip -Z1 "bandwatch-$VER-tester-bundle.zip")
-          for need in README-FIRST.txt INSTALL-SINHALA.md INSTALL.md HARDWARE-TESTING.md TROUBLESHOOTING.md \
+          for need in README-FIRST.txt INSTALL-SINHALA.md INSTALL.md UPGRADE.md UPGRADE-SINHALA.md HARDWARE-TESTING.md TROUBLESHOOTING.md \
                       bandwatch-test-round.sh SHA256SUMS "bandwatch-$VER-openwrt.tar.gz" .apk .ipk; do
             printf '%s\n' "$list" | grep -qF -- "$need" || { echo "tester bundle lacks $need"; exit 1; }
           done
@@ -98,7 +103,7 @@ jobs:
           gh release create "$TAG" release/* \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "BandWatch $TAG — Initial Public Beta" \
+            --title "$TITLE" \
             --notes-file "docs/release-notes/$TAG.md"
 
       - name: Verify public downloads
