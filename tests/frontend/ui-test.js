@@ -134,12 +134,29 @@ async function watchErrors(page) {
       // reports about:blank, so goto/waitForSelector hang. Evidence from
       // tests/firefox-repro (runs 45312047044, 45314457152): navigating at
       // once stalled in 2/2 runs; letting the new page settle for 500 ms
-      // first gave 0 stalls in 144 loads. The app is not involved, and every
-      // assertion below is unchanged.
+      // first gave 0 stalls in 144 loads there, but the full suite still
+      // stalls occasionally (run 45315671249). The app is not involved, and
+      // every assertion below is unchanged.
       const newPage = ctx.newPage.bind(ctx);
       ctx.newPage = async () => {
         const p = await newPage();
-        await p.waitForTimeout(500);
+        await p.waitForTimeout(500); // reduces, but does not eliminate, the lost events
+        // A goto timeout stays a failure; the message says whether the page
+        // had in fact loaded (tooling, issue #2) or not (a real problem).
+        const goto = p.goto.bind(p);
+        p.goto = async (url, o) => {
+          try {
+            return await goto(url, o);
+          } catch (e) {
+            const st = await Promise.race([
+              p.evaluate(() => ({ href: location.href, readyState: document.readyState, cards: document.querySelectorAll('#main .card').length })),
+              new Promise((r) => setTimeout(() => r(null), 5000)),
+            ]).catch(() => null);
+            const loaded = st && st.readyState === 'complete' && st.href === url;
+            e.message = `${e.message.split('\n')[0]} [page state: ${JSON.stringify(st)}; Playwright URL ${p.url()}${loaded ? ' - page loaded, Playwright missed its navigation events (issue #2)' : ''}]\n${e.message.split('\n').slice(1).join('\n')}`;
+            throw e;
+          }
+        };
         return p;
       };
     }
