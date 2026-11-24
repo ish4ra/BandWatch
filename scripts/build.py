@@ -139,12 +139,15 @@ def installed_size(files):
     return sum(len(_data(s)) for s in files.values())
 
 
-def build_ipk(name, version, files, depends, scripts, mtime, conffiles=()):
+def build_ipk(name, version, files, depends, scripts, mtime, conffiles=(), provides=()):
     control = "\n".join(
         [
             "Package: %s" % name,
             "Version: %s" % version,
             "Depends: %s" % ", ".join(depends),
+        ]
+        + (["Provides: %s" % ", ".join(provides)] if provides else [])
+        + [
             "Source: %s" % URL,
             "SourceName: %s" % name,
             "License: MIT",

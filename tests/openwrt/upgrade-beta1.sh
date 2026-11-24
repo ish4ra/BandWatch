@@ -69,9 +69,16 @@ if docker exec "$NAME" sh -c 'command -v apk' >/dev/null 2>&1 && ls "$ROOT"/dist
 	check "apk: upgrade to $VER packages (no uninstall)" "apk add --allow-untrusted --no-network /dist/bandwatch-*.apk /dist/luci-app-bandwatch-*.apk && apk info -v 2>/dev/null | grep -q '^bandwatch-' && $WAIT_UP && $H verify $VER upgrade"
 	rm -rf "$STUB"
 elif docker exec "$NAME" sh -c 'command -v opkg' >/dev/null 2>&1; then
-	check "opkg: install published beta.1 packages" "opkg install --force-depends /beta1/bandwatch_*_all.ipk /beta1/luci-app-bandwatch_*_all.ipk; $WAIT_UP"
+	# The test image's Python is not opkg-managed: a stub package provides the
+	# dependency names so opkg resolves them normally (no --force-depends,
+	# which would make opkg skip the upgrade of 'bandwatch').
+	STUB="$ROOT/dist/.stub"
+	mkdir -p "$STUB"
+	(cd "$ROOT" && python3 -c "import sys; sys.path.insert(0, 'scripts'); import build; open(sys.argv[1], 'wb').write(build.build_ipk('bw-test-python-stub', '3.13.0-1', {'usr/share/doc/bw-test-stub/README': b'stub'}, [], {}, 1790000000, provides=['python3-light', 'python3-sqlite3', 'python3-urllib', 'luci-base']))" "$STUB/stub.ipk")
+	check "opkg: install published beta.1 packages" "opkg install /dist/.stub/stub.ipk /beta1/bandwatch_*_all.ipk /beta1/luci-app-bandwatch_*_all.ipk && $WAIT_UP"
 	check "opkg: seed data with beta.1" "/etc/init.d/bandwatch stop; $H seed && /etc/init.d/bandwatch start && $WAIT_UP && sleep 3 && $H verify $OLD"
-	check "opkg: upgrade to $VER packages (no uninstall)" "opkg install --force-depends /dist/bandwatch_*_all.ipk /dist/luci-app-bandwatch_*_all.ipk; $WAIT_UP && $H verify $VER upgrade"
+	check "opkg: upgrade to $VER packages (no uninstall)" "opkg install /dist/bandwatch_*_all.ipk /dist/luci-app-bandwatch_*_all.ipk && $WAIT_UP && $H verify $VER upgrade"
+	rm -rf "$STUB"
 fi
 
 echo
