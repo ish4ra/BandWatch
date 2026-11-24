@@ -52,7 +52,7 @@ def main():
                     drv.get("%s/#/%s" % (BASE, v))
                     WebDriverWait(drv, 30).until(ec.presence_of_element_located((By.CSS_SELECTOR, "#main .card")))
                     times.append(time.time() - t0)
-                except Exception as exc:  # noqa: BLE001 - investigation summary
+                except Exception as exc:  # investigation summary: record any failure
                     state = drv.execute_script("return [document.readyState, location.href, document.querySelectorAll('#main .card').length]")
                     failures.append((r, v, type(exc).__name__, state))
                 # keep a few tabs alive (like kept-open contexts), close the rest
