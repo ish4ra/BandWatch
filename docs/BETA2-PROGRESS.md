@@ -91,17 +91,26 @@ context close vs navigation, each in a fresh browser.
   SECURITY, SECURITY-AUDIT (D1-D3), TROUBLESHOOTING, INSTALL, traceability,
   tester README; screenshots `health-dark.png`, `settings-report-dark.png`.
 
-## Firefox evidence so far
+## Firefox evidence so far (issue #2)
 
-- Run https://github.com/ish4ra/BandWatch/actions/runs/45304144386: 2 Firefox
-  runs x 8 variants x 30 loads = 480 loads, **zero stalls** (standalone server
-  with fetch/SSE/service worker/keep-alive/Connection: close, context close and
-  in-context navigation; BandWatch demo with SW allowed/blocked).
-- Same commit, full UI suite (CI run 45304144223): stalled at the 3rd context
-  (tablet) - `page.goto` waiting for `load` with 0 pending requests.
-- Next experiment (pushed): variants mirroring ui-test.js exactly (5 demo
-  servers, viewport per context, listeners, keep-open vs real close, SW
-  allowed vs blocked).
+Isolated workflow `firefox-investigation.yml`, reproduction `tests/firefox-repro/`.
+
+1. Run 45304144386: standalone server + minimal BandWatch variants (fetch, SSE,
+   service worker, keep-alive vs Connection: close, close vs navigate):
+   2 x 480 Firefox loads, **0 stalls**.
+2. Run 45306909427: variants mirroring ui-test.js (5 demo servers, viewport
+   per context, listeners): Firefox stalls with SW allowed **and blocked**;
+   keep-open contexts (beta.1 workaround) stalled in 4/4 runs, real close in
+   1/4. Chromium: 0 stalls. => SW is not the cause; keep-open makes it worse.
+3. Run 45312047044 (page probe at the stall): the stalled page reports
+   `readyState: complete`, load event at ~100-130 ms, all assets loaded, the
+   dashboard rendered and polling continuing - while **Playwright still
+   reports `about:blank`**. Always the first navigation of a new page. =>
+   the browser and app are fine; Playwright's Firefox driver (Juggler) lost
+   the navigation lifecycle events, and every later wait hangs on that
+   phantom navigation.
+4. Run (round 3, pending): does priming a new page (`goto('about:blank')`
+   or 500 ms delay) before the first navigation avoid it?
 
 ## Resume instructions
 

@@ -126,21 +126,28 @@ async function watchErrors(page) {
   browser.newContext = async (opts) => {
     const ctx = trackRequests(await newContext(opts));
     if (process.env.BW_UI_NO_EVENTSOURCE) await ctx.addInitScript(() => { try { delete window.EventSource; } catch { /* ignore */ } });
+    if (BROWSER === 'firefox') {
+      // Issue #2: Playwright's Firefox driver intermittently loses the
+      // navigation events of a page that is navigated immediately after it
+      // was created. The page itself loads fine (readyState "complete",
+      // dashboard rendered, polling continues) while Playwright still
+      // reports about:blank, so goto/waitForSelector hang. Evidence from
+      // tests/firefox-repro (runs 45312047044, 45314457152): navigating at
+      // once stalled in 2/2 runs; letting the new page settle for 500 ms
+      // first gave 0 stalls in 144 loads. The app is not involved, and every
+      // assertion below is unchanged.
+      const newPage = ctx.newPage.bind(ctx);
+      ctx.newPage = async () => {
+        const p = await newPage();
+        await p.waitForTimeout(500);
+        return p;
+      };
+    }
     const close = ctx.close.bind(ctx);
     ctx.close = async () => {
-      if (BROWSER === 'firefox') {
-        // Firefox under Playwright intermittently stalled every new page load
-        // for ~80 s after a context was closed (or navigated away) while it
-        // had requests in flight - live stream or ordinary API calls alike;
-        // nothing was pending on the network and the server was not involved.
-        // So finished Firefox contexts are not closed: their pages stop their
-        // live updates (pagehide), in-flight requests complete, and the idle
-        // contexts are released when the browser exits.
-        for (const p of ctx.pages()) await p.evaluate(() => window.dispatchEvent(new Event('pagehide'))).catch(() => {});
-        await new Promise((r) => setTimeout(r, 1500));
-        return undefined;
-      }
-      // Other browsers: leave each page first so live streams end cleanly.
+      // Leave each page first so live streams end cleanly. (beta.1 kept
+      // Firefox contexts open instead; the reproduction showed that made the
+      // stalls above more frequent, so every browser now closes normally.)
       for (const p of ctx.pages()) await p.goto('about:blank', { timeout: 5000 }).catch(() => {});
       return close();
     };

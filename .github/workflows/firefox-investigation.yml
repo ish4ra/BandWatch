@@ -10,6 +10,7 @@ on:
     branches: ["claude/**"]
     paths:
       - "tests/firefox-repro/**"
+      - "tests/frontend/ui-test.js"
       - ".github/workflows/firefox-investigation.yml"
   workflow_dispatch:
 
@@ -46,7 +47,7 @@ jobs:
           REPRO_ITER: "72"
           REPRO_BUDGET_MS: "600000"
           REPRO_STEP_TIMEOUT: "30000"
-          REPRO_VARIANTS: "uitest-keepopen-nosw uitest-keepopen-prime-blank uitest-keepopen-prime-delay"
+          REPRO_VARIANTS: "uitest-close-sw uitest-keepopen-prime-delay"
           REPRO_OUT: repro-${{ matrix.browser }}-${{ matrix.run }}.json
         run: node tests/firefox-repro/repro.js
       - uses: actions/upload-artifact@v4
@@ -55,3 +56,31 @@ jobs:
           name: repro-${{ matrix.browser }}-${{ matrix.run }}
           path: repro-*.json
           retention-days: 14
+
+  ui-repeat:
+    # Repeatability check for a Firefox change in tests/frontend/ui-test.js:
+    # the complete Firefox UI suite, several independent runs in parallel.
+    name: Full Firefox UI suite (repeat ${{ matrix.run }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright
+        working-directory: tests/frontend
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps firefox
+      - name: Run the Firefox UI suite
+        env:
+          BROWSER: firefox
+        run: node tests/frontend/ui-test.js
