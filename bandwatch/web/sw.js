@@ -1,5 +1,5 @@
 // BandWatch service worker: caches the static app shell only (never API data).
-const CACHE = 'bandwatch-shell-v0.1.0-beta.1';
+const CACHE = 'bandwatch-shell-v0.1.0-beta.2';
 const SHELL = ['/', '/index.html', '/css/app.css', '/js/app.js', '/js/charts.js', '/js/format.js', '/js/icons.js', '/assets/favicon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

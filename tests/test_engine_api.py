@@ -11,14 +11,14 @@ from bandwatch import store as stmod
 from bandwatch.engine import Engine
 
 
-def make_engine(tmp_path, scenario="aw1000-cellular", days=0, fast=True):
+def make_engine(tmp_path, scenario="aw1000-cellular", days=0, fast=True, plat=None):
     service = cfgmod.ServiceConfig(listen=["loopback"], data_dir=str(tmp_path), run_dir=str(tmp_path / "run"), auth="none", demo=True)
     settings = cfgmod.Settings(str(tmp_path / "settings.json"))
     settings.update({"general.timezone": demo.DEMO_TZ})
     if fast:
         settings.update({"wan.sample_interval": 1, "devices.poll_interval": 1, "aria2.poll_interval": 1, "storage.flush_interval": 30})
     demo.prepare(service, scenario)
-    plat = demo.DemoPlatform(scenario)
+    plat = plat or demo.DemoPlatform(scenario)
     eng = Engine(service, plat, settings=settings)
     if days:
         demo.backfill(eng.store, days=days)

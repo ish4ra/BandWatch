@@ -1,5 +1,9 @@
 # BandWatch — ස්ථාපනය සහ පරීක්ෂණ මාර්ගෝපදේශය (සිංහල)
 
+> **beta.2 සඳහා:** beta.1 දැනටමත් ස්ථාපනය කර ඇත්නම් එය ඉවත් නොකර යාවත්කාලීන
+> කිරීමට [UPGRADE-SINHALA.md](UPGRADE-SINHALA.md) බලන්න. ගැටලු වාර්තා කිරීමට
+> SSH අවශ්‍ය නැත: dashboard → **Health** → **Download Diagnostic Report**.
+
 මෙය BandWatch **beta** අනුවාදය (v0.1.0-beta.1) Arcadyan AW1000 router එකක
 පළමු වරට පරීක්ෂා කරන අය සඳහාය. පහත පියවර අනුපිළිවෙලින් කළහොත් එක්
 පරීක්ෂණ වටයක් (test round) සම්පූර්ණ කළ හැක. විධාන (commands) ඉංග්‍රීසියෙන්ම,

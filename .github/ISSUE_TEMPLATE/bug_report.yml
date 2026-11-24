@@ -9,7 +9,7 @@ body:
         hostnames or passwords. Attach the sanitised output of `bandwatch-diag` instead (review it first).
   - type: input
     id: version
-    attributes: { label: BandWatch version, placeholder: "0.1.0-beta.1" }
+    attributes: { label: BandWatch version, placeholder: "0.1.0-beta.2" }
     validations: { required: true }
   - type: input
     id: openwrt

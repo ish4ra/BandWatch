@@ -66,6 +66,28 @@ BandWatch is a local-first application for the LAN side of a router.
 The latest audit and its findings are in
 [docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md).
 
+**Diagnostic report and update check (0.1.0-beta.2)**
+* The one-click diagnostic report (`/api/diagnostics/report.zip|.json`,
+  `/api/diagnostics/checks`) requires an authenticated session, is served
+  only to the LAN/loopback clients already allowed, and is never uploaded.
+* It is built from an explicit allow-list (`bandwatch/report.py`): every
+  field is validated individually (enums, numbers, short version-like
+  tokens). Collector messages, notes, provider replies, event messages,
+  settings values that can hold URLs, file paths and device identities are
+  never copied; collectors expose machine-readable codes with fixed
+  descriptions. Listening and provider addresses are reduced to scopes
+  (loopback, LAN, wildcard, public). `tests/test_report_privacy.py` plants
+  secrets, addresses, MACs, SSIDs, PPPoE/APN credentials, file names and
+  script payloads in every input and checks that none reaches the report.
+* The manual update check runs in the browser, only when the user presses
+  the button, against `api.github.com/repos/ish4ra/BandWatch/releases`
+  (CSP `connect-src` allows only that extra origin) with no cookies or
+  referrer. Release notes are rendered as text; release links must point to
+  the official repository. Nothing is installed automatically and the router
+  makes no outbound request.
+* There is no shell or command-execution endpoint; diagnostics only read
+  BandWatch's own state.
+
 ## Known limitations
 
 * The dashboard uses plain HTTP on the LAN by default. Anyone who can sniff

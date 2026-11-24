@@ -139,12 +139,15 @@ def installed_size(files):
     return sum(len(_data(s)) for s in files.values())
 
 
-def build_ipk(name, version, files, depends, scripts, mtime, conffiles=()):
+def build_ipk(name, version, files, depends, scripts, mtime, conffiles=(), provides=()):
     control = "\n".join(
         [
             "Package: %s" % name,
             "Version: %s" % version,
-            "Depends: %s" % ", ".join(depends),
+        ]
+        + (["Depends: %s" % ", ".join(depends)] if depends else [])
+        + (["Provides: %s" % ", ".join(provides)] if provides else [])
+        + [
             "Source: %s" % URL,
             "SourceName: %s" % name,
             "License: MIT",
@@ -357,12 +360,14 @@ TESTER_DOCS = {
     "INSTALL.md": "docs/INSTALL.md",
     "HARDWARE-TESTING.md": "docs/HARDWARE-TESTING.md",
     "TROUBLESHOOTING.md": "docs/TROUBLESHOOTING.md",
+    "UPGRADE.md": "docs/UPGRADE.md",
+    "UPGRADE-SINHALA.md": "docs/UPGRADE-SINHALA.md",
     "bandwatch-test-round.sh": "scripts/bandwatch-test-round.sh",
 }
 
 
 def build_tester_bundle(out, produced, mtime):
-    """One zip for the first hardware tester: packages, checksums, guides."""
+    """One zip for hardware testers: packages, checksums, guides."""
     import zipfile
 
     name = "bandwatch-%s-tester-bundle" % __version__

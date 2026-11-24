@@ -1,10 +1,21 @@
-# Security audit — pre-beta (v0.1.0-beta.1)
+# Security audits (v0.1.0-beta.1 pre-beta, v0.1.0-beta.2 diagnostics)
 
 Scope: authentication, authorisation, LuCI single sign-on, sessions, CSRF,
 XSS, DNS rebinding, SSRF via provider URLs, secret handling, service
 permissions, installer/uninstaller safety, network exposure and HTTPS.
 Method: code review plus automated tests (pytest, Playwright including a
 real LuCI in an OpenWrt 25.12 container). Not a third-party penetration test.
+
+## Diagnostics audit (v0.1.0-beta.2)
+
+Scope: the diagnostics export (`Engine.diagnostics()`, `/api/diagnostics`,
+`bandwatch diag`) and the new report, update-check and self-monitoring code.
+
+| # | Severity | Finding | Fix | Test |
+| --- | --- | --- | --- | --- |
+| D1 | Medium | The beta.1 export copied nested collector objects after removing a few keys (deny list). Collector `message` and `notes` can quote provider replies verbatim (e.g. an aria2 `faultString`, Bandix errors, configured URLs); `settings` and storage `path` values were passed through. A provider reply containing a token, address or file name would have been exported. | Report built from an explicit allow-list with per-field validators (`bandwatch/report.py`); collectors expose machine-readable codes with fixed descriptions; addresses reduced to scopes; event messages not exported. `/api/diagnostics` and `bandwatch diag` use the same builder. | `tests/test_report_privacy.py` (hostile provider replies, planted secrets/MACs/IPs/SSIDs/paths/script payloads) |
+| D2 | Low | New outbound capability (update check) could leak router context. | Browser-side only, on explicit click, `credentials: 'omit'`, no referrer, CSP `connect-src` limited to `https://api.github.com`; notes rendered as text; links restricted to the official repository. | UI test "manual update check" (no request before click, no cookie/referrer, HTML in notes not rendered, foreign/draft releases ignored) |
+| D3 | Info | Report endpoints are new GET routes. | Same session requirement and network gate as every API route; no state change; no command execution. | `test_api_requires_auth`, `test_one_click_report_download` |
 
 ## Findings fixed in this audit
 

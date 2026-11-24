@@ -1,18 +1,36 @@
-# Requirements traceability matrix (v0.1.0-beta.1)
+# Requirements traceability matrix (v0.1.0-beta.2)
 
 Verification levels (strongest evidence available today):
 
 | Level | Meaning |
 | --- | --- |
-| **HW** | Verified on physical router hardware — **none yet** |
+| **HW** | Verified on physical router hardware — **one AW1000 snapshot** (installation, collector states, provider connectivity only) |
 | **OWRT** | Automated test inside an OpenWrt 24.10/25.12 rootfs container (real procd, ubusd, rpcd, uhttpd, LuCI, apk/opkg, BusyBox) |
 | **SIM** | Automated test against the demo simulator, fixtures or fakes |
 | **UNIT** | Unit test of the logic |
 | **DOC** | Documented / designed; not automatically testable |
 | **—** | Not implemented |
 
-Nothing here is verified on physical hardware. Every HW-relevant item is in
-[HARDWARE-TESTING.md](HARDWARE-TESTING.md).
+Only installation, collector states and provider connectivity have been
+observed on physical hardware (one AW1000 snapshot). Every HW-relevant item is
+in [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
+
+## Reliability and diagnostics (0.1.0-beta.2)
+
+| Requirement | Implementation | Tests | Level |
+| --- | --- | --- | --- |
+| Empty start-up DB distinguished from persistence failure; service vs router uptime | `Engine.persistence_status()` | `test_empty_database_on_first_start_is_reported_as_normal`, `test_aw1000_like_snapshot_is_classified_as_normal_startup` | SIM |
+| Early first save, then regular interval | `FIRST_FLUSH_DELAY` in `engine.py` | `test_first_flush_happens_early_then_regular_interval` | SIM |
+| Restart / reboot / unclean stop / upgrade detection | `Engine._record_start()` | `test_clean_restart_…`, `test_unclean_stop_is_detected`, `test_router_reboot_is_detected_from_boot_id`, `test_upgrade_from_database_without_lifecycle` | SIM |
+| Pre-clock samples survive a restart within the same boot | `_save_prebuffer` / `_load_prebuffer` | `test_prebuffer_survives_restart_within_the_same_boot`, `…_dropped_after_reboot`, `…_persisted_once_clock_is_trusted` | SIM |
+| WAL checkpoint, power-loss consistency, flush-failure retry | `store.py` | `test_clean_stop_checkpoints_the_wal`, `test_power_loss_snapshot_is_consistent`, `test_flush_failure_is_reported_and_retried` | UNIT |
+| Bounded self-monitoring (CPU, RSS, threads, sampling, errors) | `selfmon.py`, `health` table | `test_selfmon_memory_is_bounded_and_weighted`, `test_selfmon_rows_persist_with_flush_and_survive_restart` | UNIT |
+| One-click sanitised report (JSON + ZIP), six statuses | `report.py`, `/api/diagnostics/*`, Health/Settings UI | `test_report_privacy.py`, `test_one_click_report_download`, UI "one-click diagnostic report" | SIM |
+| Allow-listed privacy with hostile inputs | `report.py` validators, `Status.code` | `test_report_never_contains_planted_personal_data`, `test_hostile_aria2_error_is_reduced_to_a_code`, `test_hostile_bandix_reply_is_reduced_to_a_code` | SIM |
+| ModemManager WAN, missing ssl/_hashlib, aria2 with/without secret | `wan.py`, `report.dependency_guidance` | `test_hardware_compat.py` | UNIT / HW snapshot |
+| Bandix direction: pending state, router traffic ignored, no auto-swap | `Engine._direction_sample` | `test_direction_*` | UNIT |
+| Manual, browser-side update check | `app.js` `mountUpdates`, CSP | UI "manual update check" | SIM |
+| Upgrade from published beta.1, rollback, re-upgrade | installer, apk, opkg | `test_upgrade_beta1.py`, `tests/openwrt/upgrade-beta1.sh` | OWRT |
 
 ## Data collection
 

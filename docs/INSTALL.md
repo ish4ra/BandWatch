@@ -152,7 +152,8 @@ a database on a spinning disk keeps that disk awake.
 
 Run the newer installer the same way; data, settings and password are kept,
 and the previous version is backed up. With packages: `apk add --allow-untrusted <new.apk>`
-or `opkg install <new.ipk>`.
+or `opkg install <new.ipk>`. Do not uninstall first. Step-by-step guide for
+0.1.0-beta.1 → beta.2 (also in Sinhala): [UPGRADE.md](UPGRADE.md).
 
 `/etc/config/bandwatch` and `/etc/bandwatch/` are listed in
 `/lib/upgrade/keep.d/bandwatch`, so they survive a firmware sysupgrade that
@@ -202,6 +203,11 @@ outside at all, firewall or not. The full procedure, in Sinhala, is in
 [HARDWARE-TESTING.md](HARDWARE-TESTING.md).
 
 ## 9. Getting help
+
+The quickest way to report a problem: dashboard → **Health** → **Download
+Diagnostic Report**, then attach the ZIP to an issue (it contains no
+addresses, names, paths or secrets).
+
 
 Run `bandwatch-diag` and attach the generated file (review it first — it is
 already sanitised) to a GitHub issue. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

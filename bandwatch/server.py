@@ -185,6 +185,8 @@ def make_handler(app):
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
             host = _hostname(self.headers.get("Host"))
+            # connect-src also allows api.github.com for the manual,
+            # user-initiated update check (browser-side; see app.js).
             ancestors = "'self'"
             if host and app.host_allowed(self.headers.get("Host")):
                 # Allow embedding by LuCI on the same router, on any port
@@ -193,7 +195,7 @@ def make_handler(app):
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-                "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; "
+                "connect-src 'self' https://api.github.com; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; "
                 "frame-ancestors %s" % ancestors,
             )
 
@@ -437,12 +439,23 @@ def make_handler(app):
                 if fname:
                     return self._download(data, fname, "text/csv; charset=utf-8")
                 return self._download(json.dumps(data, indent=1), "bandwatch-export.json", "application/json")
-            if path == "/api/diagnostics":
-                return self._download(json.dumps(e.diagnostics(), indent=1, default=str), "bandwatch-diagnostics.json", "application/json")
+            if path in ("/api/diagnostics", "/api/diagnostics/report.json", "/api/diagnostics/report.zip", "/api/diagnostics/checks"):
+                return self._diagnostics(path)
             if path.startswith("/api/devices/"):
                 mac = urllib.parse.unquote(path[len("/api/devices/"):])
                 return self._json(200, api.device_detail(e, mac, params))
             raise api.ApiError(404, "not found")
+
+        def _diagnostics(self, path):
+            from . import report
+
+            r = report.build(app.engine)
+            if path == "/api/diagnostics/checks":
+                keep = ("generated_ts", "schema", "schema_version", "checks", "summary_counts", "unverified", "persistence", "privacy")
+                return self._json(200, {k: r[k] for k in keep})
+            if path == "/api/diagnostics/report.zip":
+                return self._download(report.to_zip(r), report.filename(r, "zip"), "application/zip")
+            return self._download(report.to_json(r), report.filename(r, "json"), "application/json")
 
         def _download(self, text, fname, ctype):
             safe = "".join(c for c in fname if c.isalnum() or c in "-_.")[:100]
@@ -575,6 +588,10 @@ def make_ssl_context(cert, key):
 def serve(app, addresses, port, ssl_ctx=None):
     servers = []
     app.tls = ssl_ctx is not None
+    try:
+        app.engine.bind_addresses = list(addresses)  # for the diagnostic report (scopes only)
+    except AttributeError:
+        pass
     for addr in addresses:
         try:
             srv = Server((addr, port), make_handler(app), app, ssl_ctx)

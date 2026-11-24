@@ -1,13 +1,47 @@
 # Performance and reliability
 
-**Targets** (on the router, not yet verified): average idle CPU below 2 %,
-resident memory below 30 MiB, no measurable throughput impact.
+**Targets** (on the router, not yet verified as sustained averages): average
+idle CPU below 2 %, resident memory below 30 MiB, no measurable throughput
+impact.
 
-**Nothing below was measured on router hardware.** All numbers come from an
+## First physical snapshot (Arcadyan AW1000, beta.1, one reading)
+
+| Item | Value |
+| --- | --- |
+| Router | Arcadyan AW1000, OpenWrt 25.12.5, qualcommax/ipq807x, 4 × Cortex-A53, kernel 6.12.94 |
+| BandWatch CPU | 0.6 % (single reading) |
+| BandWatch RSS | 18,059,264 bytes (~17.2 MiB) |
+| BandWatch threads | 7 |
+| Router CPU / memory | 16.1 % / 32.9 % of 865 MiB |
+| Router uptime at the snapshot | 676 s (service uptime not recorded by beta.1) |
+| Loop errors | 0 |
+
+This is **one snapshot** taken minutes after boot, not an idle benchmark and
+not a sustained average. From beta.2 on BandWatch records its own CPU, RSS,
+threads and sampling quality automatically (every 5 s, summarised per 15
+minutes) and the one-click diagnostic report contains last-hour, 24-hour,
+7-day and 30-day averages and peaks, so sustained figures will come from
+tester reports without manual benchmarking.
+
+## Cost of the beta.2 diagnostics subsystem (x86-64 dev container)
+
+| Item | Measured |
+| --- | --- |
+| One self-monitoring observation (every 5 s) | 2–3 µs (< 0.0001 % of one core) |
+| Memory for 24 h of 15-minute intervals in RAM | 63–66 KiB |
+| `health` table, 31 days (2,976 rows) | ~110–125 KiB on flash, written with the regular 5-minute save (no extra writes) |
+| Building the full report | ~0.6 ms; JSON ~15 KB, ZIP ~6 KB |
+| Extra flash write per service start | one early save 90 s after the clock is trusted |
+
+A Cortex-A53 is several times slower per operation, which still leaves these
+costs far below measurement noise. Reproduce with
+`cd tests && python3 bench_diagnostics.py`; the memory bound is also enforced
+by `test_selfmon_memory_is_bounded_and_weighted`.
+
+**The tables below were not measured on router hardware.** They come from an
 x86-64 development VM (4 vCPU Xeon @ 2.1 GHz) running the demo simulator,
 which exercises every collector. An ARM Cortex-A53 runs Python several times
-slower, so router CPU figures will be higher. Measure on the AW1000 with
-`sh bandwatch-test-round.sh perf`.
+slower, so router CPU figures will be higher.
 
 ## Measured (x86-64 dev VM, demo mode, 45 days of history, 2 s WAN sampling)
 
@@ -48,4 +82,7 @@ slower, so router CPU figures will be higher. Measure on the AW1000 with
 * **Crash safety.** WAL journal with `synchronous=NORMAL`; `SIGKILL` during
   operation leaves a database that passes `PRAGMA integrity_check`
   (`test_unexpected_shutdown_keeps_flushed_data`). Up to one flush interval
-  of samples can be lost on power failure.
+  of samples can be lost on power failure. A clean stop (reboot, restart,
+  upgrade) saves everything first and checkpoints the WAL; samples collected
+  before the router clock is trusted are kept across a restart within the
+  same boot (`tests/test_persistence.py`).

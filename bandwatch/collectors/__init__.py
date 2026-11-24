@@ -25,21 +25,27 @@ class Status:
         self.last_ok = None
         self.last_error = None
         self.error_count = 0
+        # Machine-readable reason for the current state. Messages may quote
+        # provider replies or configured URLs; diagnostic exports only use
+        # this code (see bandwatch/report.py), never the message.
+        self.code = "starting"
         self.notes = []
         self.extra = {}
 
-    def ok(self, message="Working", now=None):
+    def ok(self, message="Working", now=None, code="ok"):
         self.state = OK
         self.message = message
+        self.code = code
         self.last_ok = now or time.time()
 
-    def set(self, state, message, now=None):
+    def set(self, state, message, now=None, code=None):
         if state in (ERROR, UNAVAILABLE) and self.state != state:
             self.error_count += 1
         if state in (ERROR, UNAVAILABLE):
             self.last_error = now or time.time()
         self.state = state
         self.message = message
+        self.code = code or state
 
     def as_dict(self):
         return {
@@ -52,6 +58,7 @@ class Status:
             "last_ok": self.last_ok,
             "last_error": self.last_error,
             "error_count": self.error_count,
+            "code": self.code,
             "notes": list(self.notes),
             **self.extra,
         }

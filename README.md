@@ -9,20 +9,22 @@
 
 BandWatch is a lightweight, local-first network intelligence dashboard for OpenWrt routers. It combines real-time bandwidth monitoring, per-device analytics, aria2 transfer statistics and router health in one interface.
 
-[![Release](https://img.shields.io/github/v/release/ish4ra/BandWatch?include_prereleases&label=release&color=34D9B3)](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1)
+[![Release](https://img.shields.io/github/v/release/ish4ra/BandWatch?include_prereleases&label=release&color=34D9B3)](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.2)
 [![CI](https://github.com/ish4ra/BandWatch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ish4ra/BandWatch/actions/workflows/ci.yml?query=branch%3Amain)
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-24.10%20%7C%2025.12-8D9CFF)](docs/COMPATIBILITY.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-34D9B3)](LICENSE)
-[![Download](https://img.shields.io/badge/download-v0.1.0--beta.1-111A27?logo=github)](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1)
+[![Download](https://img.shields.io/badge/download-v0.1.0--beta.2-111A27?logo=github)](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.2)
 
-[**Download**](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1) · [**Install**](docs/INSTALL.md) · [**සිංහල**](docs/INSTALL-SINHALA.md) · [**Demo**](#demo-mode) · [**Known issues**](#known-limitations)
+[**Download beta.2**](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.2) · [**Install**](docs/INSTALL.md) · [**Upgrade**](docs/UPGRADE.md) · [**සිංහල**](docs/INSTALL-SINHALA.md) · [**Demo**](#demo-mode) · [**Known issues**](#known-limitations)
 
 </div>
 
 > [!IMPORTANT]
-> **Public beta for early adopters.** v0.1.0-beta.1 has passed automated tests, OpenWrt container tests and an OpenWrt SDK build. It has **not yet been verified on a physical router**; the first hardware test (Arcadyan AW1000) is pending. It is not production-ready.
+> **Public beta for early adopters: v0.1.0-beta.2.** Not production-ready. BandWatch passes automated tests, OpenWrt 25.12/24.10 container tests (including upgrade and rollback from the published beta.1) and an OpenWrt SDK build. **beta.2 itself has not yet been tested on a physical router.**
 >
-> The CI badge includes one known, accepted failure: intermittent Firefox automated-test stalls ([#2](https://github.com/ish4ra/BandWatch/issues/2)). All other checks pass.
+> **First physical router result (one beta.1 diagnostic snapshot, not a benchmark or hardware acceptance):** on an Arcadyan AW1000 (OpenWrt 25.12.5, qualcommax/ipq807x) beta.1 installed and ran in production mode; all six collectors reported OK; Bandix 0.12.12 reported eight devices; aria2 RPC connectivity was observed; BandWatch used 0.6 % CPU and about 17.2 MiB RSS at that moment, with no application loop errors. Traffic-accounting accuracy, sustained performance, WAN isolation and reboot recovery have **not** been verified yet.
+>
+> The CI badge includes one known failure: the Playwright Firefox job fails intermittently because the test driver loses page-load events ([#2](https://github.com/ish4ra/BandWatch/issues/2)); regular Firefox loads the dashboard reliably. All other checks pass.
 
 <br>
 
@@ -39,7 +41,9 @@ BandWatch is a lightweight, local-first network intelligence dashboard for OpenW
 | **Per-device usage** | Reads an existing [Bandix](https://github.com/timsaya/bandix) installation (read-only API) or nlbwmon. Internet and LAN-local traffic are kept separate. Without a provider, WAN monitoring keeps working. |
 | **aria2 statistics** *(optional)* | Read-only JSON-RPC: live speeds, task status, Today and This month totals. Data that already existed when a task was first seen is never counted. |
 | **History and analytics** | Today, yesterday, week, month, year and custom ranges, with totals, peak, average and minimum speeds, measurement coverage and CSV export. Missing data is shown as a gap, never as zero. |
-| **Router health** | CPU, memory, storage, temperatures, uptime, collector status and BandWatch's own resource use. The database size is shown separately from filesystem usage. |
+| **Router health** | CPU, memory, storage, temperatures, uptime, collector status, database persistence status and BandWatch's own resource use, recorded automatically (last hour / 24 h / 7 / 30 days). |
+| **One-click diagnostic report** | A sanitised ZIP (JSON + plain-text summary) from the Health or Settings page: versions, collector codes, resource summaries, restarts and reboots, database health and explicit passed / failed / warning / insufficient-data / not-tested / unavailable checks. No SSH needed, never uploaded. |
+| **Manual update check** | Settings → Updates asks GitHub from your browser, only when you press the button. Installation stays manual. |
 | **LuCI integration** | Status → BandWatch menu entry with single sign-on (requires LuCI write access). |
 | **Private and secure** | LAN-only by default, no cloud, no telemetry, CSRF and CSP protection, unprivileged service user, optional HTTPS, sanitised diagnostics. |
 | **Embedded-friendly** | Python standard library and SQLite only, batched flash writes, bounded memory, about 150 KiB of web assets with no CDN. |
@@ -51,6 +55,8 @@ BandWatch is a lightweight, local-first network intelligence dashboard for OpenW
 | <img src="docs/assets/screenshots/devices-dark.png" alt="Devices page" width="440"> | <img src="docs/assets/screenshots/aria2-dark.png" alt="aria2 page with Today and This month cards" width="440"> |
 | **History** | **System health** |
 | <img src="docs/assets/screenshots/history-dark.png" alt="History page" width="440"> | <img src="docs/assets/screenshots/health-dark.png" alt="System health page" width="440"> |
+| **Diagnostic report and updates (Settings)** | |
+| <img src="docs/assets/screenshots/settings-report-dark.png" alt="Settings with the one-click diagnostic report and the manual update check" width="440"> | |
 | **Light theme** | **Phone** |
 | <img src="docs/assets/screenshots/overview-light.png" alt="Overview in the light theme" width="440"> | <img src="docs/assets/screenshots/mobile-overview-dark.png" alt="Phone layout" width="220"> |
 
@@ -82,7 +88,7 @@ How each part has been verified:
 | Level | What it covers | Status |
 | --- | --- | --- |
 | Automated unit and integration tests | Backend (Python 3.10, 3.11, 3.13), security and lint checks, dashboard end-to-end tests (Chromium, WebKit) | ✅ Passing |
-| Firefox end-to-end tests | Same dashboard suite in Firefox | ⚠️ Intermittent harness stalls ([#2](https://github.com/ish4ra/BandWatch/issues/2)) |
+| Firefox end-to-end tests | Same dashboard suite in Firefox (Playwright) | ⚠️ Intermittent: Playwright loses page-load events ([#2](https://github.com/ish4ra/BandWatch/issues/2)); regular Firefox check passes |
 | OpenWrt container tests | Install, service, ubus ACL, SSO, HTTPS, upgrade, rollback, uninstall, purge safety, tester helper on 25.12 and 24.10 rootfs; real LuCI end-to-end | ✅ Passing |
 | OpenWrt SDK build | Feed Makefiles built with the 25.12 SDK | ✅ Passing |
 | **Physical router** | Arcadyan AW1000 (qualcommax/ipq807x), OpenWrt 25.12.5 | ⏳ **Not yet tested** |
@@ -91,15 +97,17 @@ The full matrix is in [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 ## Download and installation
 
-Get everything from the **[v0.1.0-beta.1 release page](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1)**. No GitHub account is needed.
+Get everything from the **[v0.1.0-beta.2 release page](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.2)**. No GitHub account is needed. **Already running beta.1?** Upgrade in place without uninstalling: [UPGRADE.md](docs/UPGRADE.md) · [සිංහල](docs/UPGRADE-SINHALA.md).
 
 | File | Use it for |
 | --- | --- |
-| [`bandwatch-0.1.0-beta.1-tester-bundle.zip`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1/bandwatch-0.1.0-beta.1-tester-bundle.zip) | **Hardware testers:** packages, guides (English and Sinhala), checklist and test-round helper |
-| [`bandwatch-0.1.0-beta.1-openwrt.tar.gz`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1/bandwatch-0.1.0-beta.1-openwrt.tar.gz) | **Recommended installer** with checks, backup and automatic rollback |
-| `bandwatch-0.1.0_beta1-r1.apk`, `luci-app-bandwatch-0.1.0_beta1-r1.apk` | OpenWrt 25.12 package manager (alternative) |
-| `bandwatch_0.1.0-beta1-1_all.ipk`, `luci-app-bandwatch_0.1.0-beta1-1_all.ipk` | OpenWrt 24.10 package manager (alternative) |
-| [`SHA256SUMS`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1/SHA256SUMS) | Integrity check for all of the above |
+| [`bandwatch-0.1.0-beta.2-tester-bundle.zip`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/bandwatch-0.1.0-beta.2-tester-bundle.zip) | **Hardware testers:** packages, upgrade and install guides (English and Sinhala), checklist and optional test-round helper |
+| [`bandwatch-0.1.0-beta.2-openwrt.tar.gz`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/bandwatch-0.1.0-beta.2-openwrt.tar.gz) | **Recommended installer and upgrader** with checks, backup and automatic rollback |
+| [`bandwatch-0.1.0_beta2-r1.apk`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/bandwatch-0.1.0_beta2-r1.apk), [`luci-app-bandwatch-0.1.0_beta2-r1.apk`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/luci-app-bandwatch-0.1.0_beta2-r1.apk) | OpenWrt 25.12 package manager (alternative) |
+| [`bandwatch_0.1.0-beta2-1_all.ipk`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/bandwatch_0.1.0-beta2-1_all.ipk), [`luci-app-bandwatch_0.1.0-beta2-1_all.ipk`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/luci-app-bandwatch_0.1.0-beta2-1_all.ipk) | OpenWrt 24.10 package manager (alternative) |
+| [`SHA256SUMS`](https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.2/SHA256SUMS) | Integrity check for all of the above |
+
+The previous [v0.1.0-beta.1](https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1) release stays available.
 
 Packages are **unsigned** for this beta. Verify downloads with `sha256sum -c SHA256SUMS --ignore-missing` (Linux/macOS) or `Get-FileHash <file>` (Windows PowerShell).
 
@@ -107,10 +115,10 @@ Packages are **unsigned** for this beta. Verify downloads with `sha256sum -c SHA
 
 ```sh
 # 1. On your computer: copy the installer to the router
-scp -O bandwatch-0.1.0-beta.1-openwrt.tar.gz root@192.168.1.1:/tmp/
+scp -O bandwatch-0.1.0-beta.2-openwrt.tar.gz root@192.168.1.1:/tmp/
 
 # 2. On the router (ssh root@192.168.1.1)
-cd /tmp && tar -xzf bandwatch-0.1.0-beta.1-openwrt.tar.gz && cd bandwatch-0.1.0-beta.1
+cd /tmp && tar -xzf bandwatch-0.1.0-beta.2-openwrt.tar.gz && cd bandwatch-0.1.0-beta.2
 sh install.sh --dry-run     # read-only checks, changes nothing
 sh install.sh               # installs, starts and prints a password
 ```
@@ -148,32 +156,33 @@ One Python process (standard library only) runs as an unprivileged user. WAN sam
 
 ## Performance
 
-Targets on the router are **below 2 % average idle CPU and below 30 MiB resident memory**. These have **not yet been measured on router hardware**. Measured so far, on x86-64:
+Targets on the router are **below 2 % average idle CPU and below 30 MiB resident memory**. Sustained averages on router hardware have **not yet been measured**; from beta.2 on BandWatch records them itself and includes them in the diagnostic report.
 
 | Environment | CPU | Memory (RSS) |
 | --- | --- | --- |
+| **Arcadyan AW1000 (physical), production, one snapshot minutes after boot** | 0.6 % | ~17.2 MiB |
 | Development VM, demo mode, idle | 0.07–0.13 % | 27.2–27.3 MiB |
 | Development VM, demo mode, 4 live dashboards | 0.67–0.73 % | 28.8–29.1 MiB |
 | OpenWrt 25.12 container, production mode, idle | 0.18 % | 24.8 MiB |
 
-An ARM router runs Python several times slower than this VM. The hardware test round measures it with `bandwatch-test-round.sh perf`. See [PERFORMANCE.md](docs/PERFORMANCE.md).
+The AW1000 figure is a single reading, not an idle benchmark or an average. See [PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## Security and privacy
 
 - **Local only.** No telemetry, no account, no cloud. The only connections are to the Bandix and aria2 endpoints you configure, on the router by default.
 - **LAN-only by default.** The dashboard listens on the LAN address and loopback. The tester helper verifies this locally, which matters behind CGNAT, where an outside test proves nothing.
 - **Hardened.** Password or LuCI sign-on, CSRF protection, strict CSP, rate-limited login, unprivileged service user, optional HTTPS, write-only aria2 secret.
-- **Shareable reports.** Diagnostics and tester reports remove MAC/IP addresses, host, device and Wi-Fi names, credentials and download file names.
+- **Shareable reports.** The diagnostic report is built from an explicit allow-list: no MAC/IP addresses, host, device or Wi-Fi names, credentials, URLs, file paths, download names or provider messages. It is generated on the router and only downloaded by your browser.
 
 See [SECURITY.md](SECURITY.md) and the [security audit](docs/SECURITY-AUDIT.md).
 
 ## Known limitations
 
-- **No physical-router verification yet.** CPU, memory, Bandix rx/tx direction and WAN isolation still have to be confirmed on the AW1000.
+- **Physical-router verification is incomplete.** One AW1000 snapshot confirms installation and provider connectivity; traffic accuracy, sustained CPU/memory, Bandix rx/tx direction, WAN isolation and reboot recovery still have to be confirmed.
 - **Per-device monitoring needs a provider** (Bandix or nlbwmon). Without one, only WAN totals are available.
 - **Hardware or software flow offloading** can bypass the counters some providers rely on, so per-device totals may be lower than the WAN total.
 - **aria2 history is an estimate** of payload traffic. Downloads that start and finish between two polls are reported as "not counted".
-- **Firefox**: automated tests stall intermittently ([#2](https://github.com/ish4ra/BandWatch/issues/2)). Firefox is not verified for this beta; use a Chromium-based browser or Safari.
+- **Firefox**: regular Firefox loads the dashboard reliably in automated checks, but the Playwright-based Firefox suite still fails intermittently because Playwright's Firefox driver loses page-load events ([#2](https://github.com/ish4ra/BandWatch/issues/2)). Chromium-based browsers and Safari remain the recommended browsers for this beta.
 - **Unsigned packages.** Verify `SHA256SUMS` before installing.
 - **Plain HTTP by default.** HTTPS with a self-signed certificate is optional.
 
@@ -183,6 +192,7 @@ See [SECURITY.md](SECURITY.md) and the [security audit](docs/SECURITY-AUDIT.md).
 | --- | --- |
 | [INSTALL.md](docs/INSTALL.md) | Installation, upgrade, uninstall, hardware test round |
 | [INSTALL-SINHALA.md](docs/INSTALL-SINHALA.md) | සිංහල ස්ථාපන සහ පරීක්ෂණ මාර්ගෝපදේශය |
+| [UPGRADE.md](docs/UPGRADE.md) / [UPGRADE-SINHALA.md](docs/UPGRADE-SINHALA.md) | Upgrading from beta.1 without losing data; one-click report (English / සිංහල) |
 | [HARDWARE-TESTING.md](docs/HARDWARE-TESTING.md) | Acceptance checklist for physical routers |
 | [COMPATIBILITY.md](docs/COMPATIBILITY.md) | Platforms, providers and verification levels |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common problems and diagnostics |
@@ -195,7 +205,7 @@ See [SECURITY.md](SECURITY.md) and the [security audit](docs/SECURITY-AUDIT.md).
 
 ## Contributing
 
-Bug reports from real routers are the most valuable contribution right now. Please use the **Hardware test report** or bug report templates under [Issues](https://github.com/ish4ra/BandWatch/issues), and attach the sanitised output of `bandwatch-diag` or `bandwatch-test-round.sh`. Code contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues privately as described in [SECURITY.md](SECURITY.md).
+Bug reports from real routers are the most valuable contribution right now. Please use the **Hardware test report** or bug report templates under [Issues](https://github.com/ish4ra/BandWatch/issues), and attach the ZIP from **Health → Download Diagnostic Report** (or, for full acceptance testing, the output of `bandwatch-test-round.sh`). Code contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
