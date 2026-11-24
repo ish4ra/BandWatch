@@ -57,7 +57,7 @@ jobs:
       - name: ShellCheck (POSIX sh / BusyBox ash)
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          shellcheck -s sh --severity=warning scripts/*.sh scripts/pkg/* tests/openwrt/run.sh \
+          shellcheck -s sh --severity=warning scripts/*.sh scripts/pkg/* tests/openwrt/run.sh tests/openwrt/upgrade-beta1.sh \
             openwrt/bandwatch/files/usr/bin/bandwatch openwrt/bandwatch/files/etc/init.d/bandwatch \
             openwrt/luci-app-bandwatch/root/usr/libexec/rpcd/luci.bandwatch
       - name: Security-sensitive code checks
@@ -160,6 +160,16 @@ jobs:
           path: dist
       - name: Install, service, ACL, SSO, upgrade, rollback, uninstall
         run: sh tests/openwrt/run.sh "${{ matrix.tag }}"
+      - name: Fetch the published beta.1 release assets
+        run: |
+          set -e
+          mkdir -p beta1 && cd beta1
+          base=https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1
+          for f in SHA256SUMS bandwatch-0.1.0-beta.1-openwrt.tar.gz bandwatch-0.1.0_beta1-r1.apk luci-app-bandwatch-0.1.0_beta1-r1.apk \
+                   bandwatch_0.1.0-beta1-1_all.ipk luci-app-bandwatch_0.1.0-beta1-1_all.ipk; do curl -fsSLO "$base/$f"; done
+          sha256sum -c --ignore-missing SHA256SUMS
+      - name: Upgrade from the published beta.1 (installer and package manager), rollback, re-upgrade
+        run: sh tests/openwrt/upgrade-beta1.sh "${{ matrix.tag }}" beta1
 
   luci-e2e:
     name: Real LuCI integration (OpenWrt 25.12)

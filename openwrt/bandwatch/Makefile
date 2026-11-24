@@ -52,7 +52,7 @@ define Package/bandwatch/install
 	$(INSTALL_DIR) $(1)/usr/lib/bandwatch
 	( cd $(PKG_BUILD_DIR) && find bandwatch -name '__pycache__' -prune -o -type f ! -name '*.pyc' -print ) | \
 		while read f; do $(INSTALL_DIR) $(1)/usr/lib/bandwatch/$$$$(dirname $$$$f); $(INSTALL_DATA) $(PKG_BUILD_DIR)/$$$$f $(1)/usr/lib/bandwatch/$$$$f; done
-	echo "$(PKG_VERSION)-beta.1" > $(1)/usr/lib/bandwatch/VERSION
+	echo "$(PKG_VERSION)-beta.2" > $(1)/usr/lib/bandwatch/VERSION
 	$(CP) $(PKG_BUILD_DIR)/owrt-files/* $(1)/
 	chmod 0755 $(1)/etc/init.d/bandwatch $(1)/usr/bin/bandwatch
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/share/doc/bandwatch
