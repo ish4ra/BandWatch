@@ -144,8 +144,8 @@ def build_ipk(name, version, files, depends, scripts, mtime, conffiles=(), provi
         [
             "Package: %s" % name,
             "Version: %s" % version,
-            "Depends: %s" % ", ".join(depends),
         ]
+        + (["Depends: %s" % ", ".join(depends)] if depends else [])
         + (["Provides: %s" % ", ".join(provides)] if provides else [])
         + [
             "Source: %s" % URL,

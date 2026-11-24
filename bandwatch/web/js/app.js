@@ -499,7 +499,10 @@ views.devices = {
       rows.sort(cmp);
       const max = Math.max(...rows.map((r) => r.rx + r.tx), 1);
       const prov = data.provider;
-      $('#dev-notice', el).innerHTML = prov.state === 'ok' ? (data.direction_check.state === 'suspect_swapped' ? `<div class="banner-inline warn">${icons.alert}<span>${esc(data.direction_check.message)}</span></div>` : '') :
+      const dc = data.direction_check || {};
+      const dirNote = dc.state === 'suspect_swapped' ? `<div class="banner-inline warn">${icons.alert}<span>${esc(dc.message)}</span></div>`
+        : (dc.state === 'insufficient_data' || dc.state === 'inconclusive') ? `<p class="note subtle" id="dir-check"><b>Download/upload direction check:</b> ${esc(dc.message)}</p>` : '';
+      $('#dev-notice', el).innerHTML = prov.state === 'ok' ? dirNote :
         `<div class="banner-inline ${prov.state === 'degraded' ? 'warn' : 'info'}">${icons.info}<span><b>Per-device usage: ${esc(prov.state)}.</b> ${esc(prov.message)}${prov.state !== 'degraded' ? ' Devices are still identified from DHCP leases, the ARP table and Wi-Fi stations, but their traffic cannot be measured.' : ''}</span></div>`;
       if (!rows.length) {
         $('#dev-table', el).innerHTML = emptyState('devices', data.devices.length ? 'No matching devices' : 'No devices found', data.devices.length ? 'Try a different search or filter.' : 'Devices appear when they obtain a DHCP lease or generate traffic.');

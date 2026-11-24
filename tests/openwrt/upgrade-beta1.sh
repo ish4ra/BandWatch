@@ -22,7 +22,7 @@ NAME="bw-up-$$"
 VER=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/bandwatch/__init__.py")
 OLD=0.1.0-beta.1
 FAILS=0
-WAIT_UP='i=0; until /etc/init.d/bandwatch running && wget -q -T 2 -O /dev/null http://127.0.0.1:8787/api/session; do i=$((i+1)); [ $i -ge 40 ] && exit 1; sleep 1; done'
+WAIT_UP='i=0; until /etc/init.d/bandwatch running 2>/dev/null && wget -q -T 2 -O /dev/null http://127.0.0.1:8787/api/session; do i=$((i+1)); [ $i -ge 40 ] && exit 1; sleep 1; done'
 H="python3 /t/upgrade_helper.py"
 
 pass() { echo "PASS: $*"; }
@@ -74,10 +74,12 @@ elif docker exec "$NAME" sh -c 'command -v opkg' >/dev/null 2>&1; then
 	# which would make opkg skip the upgrade of 'bandwatch').
 	STUB="$ROOT/dist/.stub"
 	mkdir -p "$STUB"
-	(cd "$ROOT" && python3 -c "import sys; sys.path.insert(0, 'scripts'); import build; open(sys.argv[1], 'wb').write(build.build_ipk('bw-test-python-stub', '3.13.0-1', {'usr/share/doc/bw-test-stub/README': b'stub'}, [], {}, 1790000000, provides=['python3-light', 'python3-sqlite3', 'python3-urllib', 'luci-base']))" "$STUB/stub.ipk")
-	check "opkg: install published beta.1 packages" "opkg install /dist/.stub/stub.ipk /beta1/bandwatch_*_all.ipk /beta1/luci-app-bandwatch_*_all.ipk && $WAIT_UP"
+	PROVIDES="python3-light python3-sqlite3 python3-urllib"
+	docker exec "$NAME" sh -c 'opkg status luci-base | grep -q "Status: .* installed"' || PROVIDES="$PROVIDES luci-base"
+	(cd "$ROOT" && python3 -c "import sys; sys.path.insert(0, 'scripts'); import build; open(sys.argv[1], 'wb').write(build.build_ipk('bw-test-python-stub', '3.13.0-1', {'usr/share/doc/bw-test-stub/README': b'stub'}, [], {}, 1790000000, provides=sys.argv[2].split()))" "$STUB/stub.ipk" "$PROVIDES")
+	check "opkg: install published beta.1 packages" "opkg install /dist/.stub/stub.ipk /beta1/bandwatch_*_all.ipk /beta1/luci-app-bandwatch_*_all.ipk; opkg list-installed | grep -E 'bandwatch|bw-test'; $WAIT_UP"
 	check "opkg: seed data with beta.1" "/etc/init.d/bandwatch stop; $H seed && /etc/init.d/bandwatch start && $WAIT_UP && sleep 3 && $H verify $OLD"
-	check "opkg: upgrade to $VER packages (no uninstall)" "opkg install /dist/bandwatch_*_all.ipk /dist/luci-app-bandwatch_*_all.ipk && $WAIT_UP && $H verify $VER upgrade"
+	check "opkg: upgrade to $VER packages (no uninstall)" "opkg install /dist/bandwatch_*_all.ipk /dist/luci-app-bandwatch_*_all.ipk; opkg list-installed | grep -E 'bandwatch'; $WAIT_UP && $H verify $VER upgrade"
 	rm -rf "$STUB"
 fi
 
