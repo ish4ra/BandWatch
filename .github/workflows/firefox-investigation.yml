@@ -46,7 +46,7 @@ jobs:
           REPRO_ITER: "72"
           REPRO_BUDGET_MS: "600000"
           REPRO_STEP_TIMEOUT: "30000"
-          REPRO_VARIANTS: "uitest-keepopen-nosw uitest-close-sw"
+          REPRO_VARIANTS: "uitest-keepopen-nosw uitest-keepopen-prime-blank uitest-keepopen-prime-delay"
           REPRO_OUT: repro-${{ matrix.browser }}-${{ matrix.run }}.json
         run: node tests/firefox-repro/repro.js
       - uses: actions/upload-artifact@v4

@@ -44,6 +44,11 @@ const VARIANTS = {
   'uitest-keepopen-nosw': { server: 'bw5', mode: 'uitest', close: 'keep', serviceWorkers: 'block' },
   'uitest-close-sw': { server: 'bw5', mode: 'uitest', close: 'real', serviceWorkers: 'allow' },
   'uitest-close-nosw': { server: 'bw5', mode: 'uitest', close: 'real', serviceWorkers: 'block' },
+  // Round 3: stalls were always the FIRST navigation of a new page, with the
+  // document complete but Playwright still at about:blank. Does priming the
+  // new page avoid the lost navigation events?
+  'uitest-keepopen-prime-blank': { server: 'bw5', mode: 'uitest', close: 'keep', serviceWorkers: 'block', prime: 'blank' },
+  'uitest-keepopen-prime-delay': { server: 'bw5', mode: 'uitest', close: 'keep', serviceWorkers: 'block', prime: 'delay' },
 };
 const SIZES = [[320, 640], [390, 844], [820, 1180], [1440, 900]];
 const VIEWS = ['overview', 'devices', 'aria2', 'history', 'health', 'settings'];
@@ -150,6 +155,8 @@ async function runVariant(name, v, port) {
           for (const ev of ['request', 'response', 'requestfinished']) ctx.on(ev, () => {});
           ctx.on('requestfailed', onFail);
           const page = await ctx.newPage();
+          if (v.prime === 'blank') await page.goto('about:blank');
+          if (v.prime === 'delay') await page.waitForTimeout(500);
           page.on('console', () => {});
           page.on('pageerror', () => {});
           for (const view of VIEWS) {
