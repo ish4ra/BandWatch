@@ -1,6 +1,12 @@
 # Troubleshooting
 
-Start with:
+Easiest first step: open the dashboard → **Health** and press **Download
+Diagnostic Report**. The ZIP contains a plain-text `SUMMARY.txt` with every
+check (passed / failed / warning / insufficient data / not tested /
+unavailable) and is safe to attach to an issue: it is built from an
+allow-list and contains no addresses, names, paths or secrets.
+
+On the router (advanced):
 
 ```sh
 /etc/init.d/bandwatch status
@@ -32,6 +38,11 @@ bandwatch-diag            # sanitised report in /tmp
 | aria2 secret disappeared | the aria2 URL was changed (secrets are bound to their endpoint) | enter the secret again |
 | aria2: "task(s) already had … not counted" | resumed data, or a download that started and finished between two polls | expected; lower the aria2 polling interval for more coverage |
 | HTTPS enabled but service does not start | `python3-openssl` or `px5g` missing | `apk add python3-openssl px5g-mbedtls`; `logread -e bandwatch` |
+| Health → Database & history says *Collecting* and the history is empty right after installing | normal start-up: data is saved for the first time about 90 s after the router clock is trusted (≈ 10 minutes after a reboot), then every 5 minutes | wait; the card shows the time to the next save. Only *Save failed* or *Overdue* indicate a problem |
+| *Waiting for clock* | router clock not yet trustworthy after boot | samples are kept in memory (also across a service restart) and saved once the clock is trusted |
+| *Save failed* (`disk_full`, `read_only`, …) | storage full or read-only | free space on the overlay or move `data_dir`; unsaved data stays in memory and is retried |
+| Bandix direction check *Pending: n of 20* | not enough clearly one-directional traffic from LAN devices yet | use the network normally (a large download on a phone/PC helps); router traffic such as aria2 is ignored; BandWatch never generates traffic and never swaps the setting itself |
+| Settings → Updates: *Update check unavailable* | browser offline, GitHub rate limit, or a privacy extension blocks api.github.com | use the GitHub Releases link shown |
 | History has gaps | BandWatch not running, reboot, provider outage | gaps are intentional (unmeasured ≠ zero) |
 | "Recovered WAN traffic … (timing estimated)" | service restarted without reboot | normal; bytes are exact, timing within the gap is spread evenly |
 | Database "recreated" warning | damaged file (e.g. power loss during write) | damaged copy kept as `bandwatch.db.corrupt-*`; attach `bandwatch-diag` to an issue |
@@ -39,6 +50,7 @@ bandwatch-diag            # sanitised report in /tmp
 | External HDD never sleeps | data dir or vnStat DB on that disk | keep `data_dir` on flash; vnStat is only read on request |
 | Times are off by hours | timezone | Settings → Timezone (`system` uses `/etc/config/system`) |
 | Clock warning after boot | NTP not yet synced | samples are buffered until the clock is trusted |
+| `ssl`/`_hashlib` "unavailable" in the report | `python3-openssl` not installed | optional: only BandWatch's own HTTPS mode needs it; sign-in uses a slower built-in hash |
 
 Reset everything (keeps the program): stop the service, remove
 `/etc/bandwatch/bandwatch.db*` and start again.

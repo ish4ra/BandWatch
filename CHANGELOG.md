@@ -4,6 +4,94 @@ All notable changes to BandWatch are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.0-beta.2] - unreleased (candidate)
+
+Reliability, diagnostics and upgrade release driven by the first physical
+router snapshot (Arcadyan AW1000, OpenWrt 25.12.5). Still a beta: one
+diagnostic snapshot is not hardware acceptance.
+
+### First physical hardware result (one snapshot, not acceptance)
+- Arcadyan AW1000, OpenWrt 25.12.5 (qualcommax/ipq807x, aarch64_cortex-a53,
+  kernel 6.12.94), Python 3.13.9 without `ssl`/`_hashlib`: installation and
+  production-mode operation observed; all six collectors OK; ModemManager WAN
+  `wwan0` detected via ubus; Bandix 0.12.12 reported 8 devices; aria2 1.37.0
+  RPC connected (no secret); BandWatch CPU 0.6 %, RSS ~17.2 MiB, 7 threads;
+  no loop errors. Traffic accuracy, sustained load, WAN isolation and reboot
+  recovery were **not** established by that snapshot.
+
+### Added
+- **One-click diagnostic report** (Health and Settings): a ZIP with a
+  versioned JSON report (`bandwatch-diagnostic-report` v1) and a plain-text
+  `SUMMARY.txt`. No SSH, scripts, root shell or reboot needed. Every check is
+  *passed*, *failed*, *warning*, *insufficient data*, *not tested* or
+  *unavailable*; untested conditions are listed explicitly.
+- **Automatic local health monitoring** from the first start: BandWatch CPU,
+  RSS and threads, router CPU/memory, WAN sampling delays and missed samples,
+  collector and loop errors in bounded 15-minute intervals (24 h in memory,
+  31 days in the database, written with the regular batched save). Last hour,
+  24 h, 7 and 30 day summaries. Never uploaded.
+- **Service lifecycle**: first start, upgrade, restart and router-reboot
+  detection (kernel boot id), clean vs. unclean previous stop, start history.
+- **Persistence status** on Health: service uptime (distinct from router
+  uptime), database open time and integrity, last successful save, time to
+  the next save, unsaved buckets (including samples waiting for a trusted
+  clock), last save error, and a plain explanation of whether an empty
+  history is the normal start-up state or a real problem.
+- **Manual update check** in Settings: runs in the browser only when asked,
+  against the official ish4ra/BandWatch releases (works without Python
+  `ssl`); shows version, beta/stable, date, notes and links. No background
+  requests, no router or device data sent, no automatic installation.
+- Upgrade guides in English and Sinhala (`docs/UPGRADE.md`,
+  `docs/UPGRADE-SINHALA.md`).
+
+### Fixed
+- Samples gathered before the router clock was trusted (first ~10 minutes
+  after boot) were discarded when the service stopped or restarted in that
+  window (the init script restarts BandWatch when `lan` comes up). They are
+  now kept across a restart within the same boot, and reported if a reboot
+  makes them unusable.
+- A clock step during the first 10 minutes after boot (time synchronisation)
+  marked the clock as trusted without converting the samples buffered until
+  then, so they stayed in memory and were never saved.
+- The diagnostics export did not include service uptime, so a normal
+  "nothing saved yet" start-up state could not be told apart from a
+  persistence failure. The unsaved-bucket count ignored the pre-clock buffer.
+- An empty save (nothing collected yet) was reported like a successful
+  write.
+- The first save after start-up now happens 90 s after the clock is trusted
+  (one extra small write per start) instead of after a full interval, so
+  persistence is confirmed within minutes. Later saves keep the configured
+  interval.
+- A clean stop now checkpoints the SQLite WAL.
+
+### Changed
+- **Diagnostics privacy**: the export is built from an explicit allow-list
+  instead of removing a few fields from nested objects. Collector messages,
+  notes and provider replies (which can quote URLs, addresses or file names)
+  are no longer exported; collectors expose machine-readable codes with
+  fixed descriptions. Listening addresses and provider endpoints are reported
+  as scopes (loopback/LAN/wildcard), never as addresses. Tested with hostile
+  provider responses containing secrets and personal identifiers.
+- Bandix direction check ignores router-generated traffic (aria2, updates),
+  traffic not attributed to LAN devices and symmetric traffic, shows its
+  progress ("Pending: n of 20 usable samples") and adds an *inconclusive*
+  state. It never changes the setting automatically and never generates
+  traffic.
+- `bandwatch check` reports the optional `ssl` module with guidance;
+  `bandwatch diag` uses the same allow-listed report.
+- CSP `connect-src` additionally allows `https://api.github.com` (manual
+  update check only).
+
+### Compatibility
+- Database schema unchanged (1). One additive table (`health`); beta.1 can
+  still open the database after a rollback. Upgrade, rollback and re-upgrade
+  are tested against the **published** beta.1 code and packages (installer,
+  apk and opkg).
+
+### Known issues
+- Firefox under Playwright: see [#2](https://github.com/ish4ra/BandWatch/issues/2)
+  and `docs/BETA2-PROGRESS.md` for the current evidence.
+
 ## [0.1.0-beta.1] - 2026-11-21 (public beta prerelease)
 
 First public beta, intended for early adopters and physical-router testing.

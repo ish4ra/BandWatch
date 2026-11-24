@@ -126,14 +126,18 @@ class Engine:
     def _check_clock(self, now):
         wall = self.p.time()
         offset = wall - now
+        stepped = False
         if self.wall_offset is not None and abs(offset - self.wall_offset) > 120:
             self._event("warning", "clock", "clock_step", "System clock changed by %+d s; samples near the change may be attributed to the wrong time" % (offset - self.wall_offset))
-            if not self.clock_trusted:
-                self.clock_trusted = wall >= MIN_VALID_WALL
+            stepped = True
         self.wall_offset = offset
         if not self.clock_trusted:
             up = self._uptime()
-            if wall >= MIN_VALID_WALL and (up is None or up >= CLOCK_TRUST_UPTIME or self.service.demo):
+            # A step while untrusted is the time synchronisation after boot:
+            # trust the new clock and convert the buffered samples with it.
+            # (Before 0.1.0-beta.2 this path set the flag without merging,
+            # leaving the buffered samples stranded until they were lost.)
+            if wall >= MIN_VALID_WALL and (stepped or up is None or up >= CLOCK_TRUST_UPTIME or self.service.demo):
                 self.clock_trusted = True
             if self.clock_trusted:
                 self.clock_trusted_at = wall
@@ -741,12 +745,12 @@ class Engine:
             return {"reason": "waiting_after_boot", "remaining_s": int(CLOCK_TRUST_UPTIME - up)}
         return {"reason": "checking"}
 
-    def persistence_status(self):
+    def persistence_status(self, db=None):
         """Is history being saved? Distinguishes a normal empty start-up
         database from an actual persistence problem."""
         now = time.time()
         mono = self.p.monotonic()
-        db = self.store.status()
+        db = db or self.store.status()
         interval = self.settings["storage.flush_interval"]
         svc_up = max(0, int(now - self.started_wall))
         with self.emit_lock:
@@ -818,6 +822,7 @@ class Engine:
             # Simulated router: hide host paths of the demo data directory.
             sysinfo["storage"] = [dict(x, path=x["path"] if x["path"] in ("/overlay", "/", "/tmp") else "(demo)") for x in sysinfo.get("storage", [])]
         db = self.store.status()
+        persistence = self.persistence_status(dict(db))
         db["path"] = os.path.basename(db["path"])
         return {
             "version": __version__,
@@ -834,7 +839,7 @@ class Engine:
             "loop_errors": self.loop_errors,
             "flush_interval": self.settings["storage.flush_interval"],
             "data_dir": self.data_dir_label,
-            "persistence": self.persistence_status(),
+            "persistence": persistence,
             "resources": {name: self.monitor.aggregate(self.monitor.rows(time.time() - secs)) for name, secs in (("last_hour", 3600), ("last_24h", 86400))},
             "lifecycle": {"current": self.lifecycle["current"], "starts": self.lifecycle["starts"], "history": self.lifecycle["history"][-10:]},
             "sampling": dict(self.sample_stats),

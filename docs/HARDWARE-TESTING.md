@@ -1,10 +1,67 @@
-# Hardware acceptance checklist (v0.1.0-beta.1)
+# Hardware acceptance checklist (v0.1.0-beta.2)
 
-Use this on the first physical router (Arcadyan AW1000, OpenWrt 25.12.5,
-qualcommax/ipq807x) and on any new device before marking it supported.
-Record results in a GitHub issue using the **Hardware test report** template.
-Attach the output of `bandwatch-diag` (sanitised) — never raw configuration
-files.
+Use this on a physical router before marking it supported. Record results in
+a GitHub issue using the **Hardware test report** template.
+
+**Routine bug reports do not need this checklist.** Open the dashboard →
+**Health → Download Diagnostic Report** and attach the ZIP. It needs no SSH,
+no commands and no reboot, and is built from an allow-list (no addresses,
+names, paths or secrets). BandWatch starts recording its own resource use,
+restarts, reboots and database saves automatically from the first start, so
+a report downloaded after a day of normal use already answers most of the
+questions below. The checklist and helper are for full acceptance testing.
+
+## First physical result: Arcadyan AW1000 (one snapshot, beta.1)
+
+Sanitised summary of the first production-mode diagnostic snapshot (taken
+676 s after a router boot; BandWatch service uptime was not recorded by
+beta.1):
+
+| Item | Observed |
+| --- | --- |
+| Router / firmware | Arcadyan AW1000, OpenWrt 25.12.5, qualcommax/ipq807x, aarch64_cortex-a53, kernel 6.12.94, 4 cores |
+| Python | 3.13.9, SQLite 3.53.1; `sqlite3`, `zoneinfo` present; `ssl`, `_hashlib` absent |
+| Installation / mode | installed, production mode |
+| Collectors | all six OK, zero errors; clock trusted; 0 loop errors |
+| WAN | `wwan0`, ModemManager, detected via ubus, IPv4 |
+| Bandix | 0.12.12, 8 devices reported, 8 identified |
+| aria2 | 1.37.0, RPC connected, no secret configured, 0 active / 0 waiting |
+| vnStat | available, queried on demand |
+| Resources (single reading) | BandWatch 0.6 % CPU, ~17.2 MiB RSS, 7 threads; router 16.1 % CPU, 32.9 % memory |
+| Database | WAL, schema 1, 40 pending buckets, no save yet (consistent with a service start < 5 minutes earlier), no error |
+| Bandix direction | insufficient data |
+
+Not established by that snapshot: traffic-accounting accuracy, sustained
+performance, WAN isolation, reboot recovery and historical persistence.
+Those are sections C–G below.
+
+**Helper (full acceptance testing only):** `bandwatch-test-round.sh` (in the
+tester bundle) collects additional evidence and never changes the router.
+`/tmp` is RAM: a reboot deletes the helper and its reports, so follow this
+order:
+
+```sh
+sh /tmp/bandwatch-test-round.sh before   # before installing (config fingerprint)
+sh /tmp/bandwatch-test-round.sh after    # after testing: status, listening check, history, sanitised Bandix sample, diagnostics, config compare
+sh /tmp/bandwatch-test-round.sh perf     # 5-minute CPU/RSS measurement (dashboard closed)
+sh /tmp/bandwatch-test-round.sh report   # pre-reboot report in /tmp/bandwatch-test-reports/
+```
+
+Then **on your computer**, copy the report and confirm the file arrived
+**before** rebooting:
+
+```sh
+scp -O "root@192.168.1.1:/tmp/bandwatch-test-reports/*.tar.gz" .
+```
+
+Only then run the reboot test (section F2): reboot, copy the helper to
+`/tmp` again, run `postreboot`, and copy its report the same way. Reports
+are sanitised (no MAC/IP addresses, host/device/Wi-Fi names, user names,
+passwords, secrets or download file names). The helper refuses to create a
+report if anything that looks private remains. Review the files before
+sharing them anyway. (With beta.2 the dashboard's report also shows reboots
+and whether history survived them, so the reboot test can be confirmed from
+Health after the router comes back.)
 
 Legend: ☐ not run · ✅ pass · ⚠️ pass with notes · ❌ fail
 

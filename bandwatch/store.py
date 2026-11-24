@@ -214,6 +214,8 @@ class Store:
         self.last_write_rows = 0
         self.rows_written = 0
         self.integrity = "unknown"
+        self._oldest = None
+        self._oldest_known = False
         t0 = time.monotonic()
         self.opened_at = time.time()
         self.conn = self._open()
@@ -521,6 +523,8 @@ class Store:
             )
             tmin = min(t for (_s, _k, t) in pending)
             tmax = max(t for (_s, _k, t) in pending)
+            if self._oldest_known and (self._oldest is None or tmin < self._oldest):
+                self._oldest = tmin
             qmin = tmin // 900 * 900
             qmax = tmax // 900 * 900 + 900
             self._rollup_quarters(qmin, qmax)
@@ -576,6 +580,7 @@ class Store:
         return tzmod.local_midnight(tzmod.local_date(ts, self.tz), self.tz)
 
     def _prune(self, now, ret):
+        self._oldest_known = False
         conn = self.conn
         conn.execute("BEGIN")
         try:
@@ -831,14 +836,21 @@ class Store:
         return [dict(zip(HEALTH_COLS, r)) for r in rows]
 
     def oldest_sample_time(self):
-        """Oldest persisted sample (any tier), or None if nothing is stored yet."""
+        """Oldest persisted sample (any tier), or None if nothing is stored yet.
+
+        Cached: it only changes when data is first written or pruned, and the
+        min() queries scan whole tables."""
+        if self._oldest_known:
+            return self._oldest
         with self.lock:
             cands = [self.conn.execute("SELECT min(t) FROM %s" % tbl).fetchone()[0] for tbl in ("m1", "m15")]
             d = self.conn.execute("SELECT min(day) FROM d1").fetchone()[0]
         cands = [c for c in cands if c is not None]
         if d is not None:
             cands.append(tzmod.local_midnight(tzmod.key_to_date(d), self.tz))
-        return min(cands) if cands else None
+        self._oldest = min(cands) if cands else None
+        self._oldest_known = True
+        return self._oldest
 
     # -- status -----------------------------------------------------------------
 

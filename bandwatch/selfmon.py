@@ -16,6 +16,7 @@ that the router was idle.
 """
 
 import collections
+import threading
 
 INTERVAL = 900
 KEEP_MEMORY = 96
@@ -30,6 +31,8 @@ class SelfMonitor:
         self.closed = collections.deque(maxlen=KEEP_MEMORY)
         self.unsaved = []
         self.observations = 0
+        # observe() runs in the WAN thread; summaries are read by web threads.
+        self.lock = threading.RLock()
 
     # -- feeding ------------------------------------------------------------------
 
@@ -56,6 +59,10 @@ class SelfMonitor:
     def observe(self, wall, mono, info, counters):
         """One observation. ``counters`` are cumulative totals:
         ``wan_bytes``, ``samples``, ``late``, ``missed``, ``coll_err``, ``loop_err``."""
+        with self.lock:
+            self._observe(wall, mono, info, counters)
+
+    def _observe(self, wall, mono, info, counters):
         self.observations += 1
         if self.cur is None:
             self._open(wall, mono, counters)
@@ -118,34 +125,40 @@ class SelfMonitor:
 
     def finish(self):
         """Close the open interval at shutdown if it holds at least a minute."""
-        if self.cur and self.cur["n"] >= 12:
-            self._close(self.cur.get("last_counters", self.cur["base"]))
-        self.cur = None
+        with self.lock:
+            if self.cur and self.cur["n"] >= 12:
+                self._close(self.cur.get("last_counters", self.cur["base"]))
+            self.cur = None
 
     def take_unsaved(self):
-        rows, self.unsaved = self.unsaved, []
+        with self.lock:
+            rows, self.unsaved = self.unsaved, []
         return rows
 
     def restore_unsaved(self, rows):
-        self.unsaved = (rows + self.unsaved)[-KEEP_MEMORY:]
+        with self.lock:
+            self.unsaved = (rows + self.unsaved)[-KEEP_MEMORY:]
 
     def current(self):
         """The open interval as a row (not persisted)."""
-        if not self.cur or not self.cur["n"]:
-            return None
-        return self._row(self.cur, self.cur.get("last_counters", self.cur["base"]))
+        with self.lock:
+            if not self.cur or not self.cur["n"]:
+                return None
+            return self._row(self.cur, self.cur.get("last_counters", self.cur["base"]))
 
     # -- summaries ----------------------------------------------------------------------
 
     def rows(self, since):
         out = {}
-        if self.store is not None and since < (self.closed[0]["t"] if self.closed else float("inf")):
+        with self.lock:
+            closed = list(self.closed)
+        if self.store is not None and since < (closed[0]["t"] if closed else float("inf")):
             try:
                 for r in self.store.health_rows(since):
                     out[r["t"]] = r
             except Exception:
                 pass
-        for r in self.closed:
+        for r in closed:
             if r["t"] >= since:
                 out[r["t"]] = r
         cur = self.current()

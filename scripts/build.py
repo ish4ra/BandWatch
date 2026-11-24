@@ -357,12 +357,14 @@ TESTER_DOCS = {
     "INSTALL.md": "docs/INSTALL.md",
     "HARDWARE-TESTING.md": "docs/HARDWARE-TESTING.md",
     "TROUBLESHOOTING.md": "docs/TROUBLESHOOTING.md",
+    "UPGRADE.md": "docs/UPGRADE.md",
+    "UPGRADE-SINHALA.md": "docs/UPGRADE-SINHALA.md",
     "bandwatch-test-round.sh": "scripts/bandwatch-test-round.sh",
 }
 
 
 def build_tester_bundle(out, produced, mtime):
-    """One zip for the first hardware tester: packages, checksums, guides."""
+    """One zip for hardware testers: packages, checksums, guides."""
     import zipfile
 
     name = "bandwatch-%s-tester-bundle" % __version__

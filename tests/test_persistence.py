@@ -359,3 +359,49 @@ def test_direction_not_applicable_without_bandix(tmp_path):
     eng.devices.status.provider = "nlbwmon"
     assert eng.direction_verdict()["state"] == "not_applicable"
     eng.store.close()
+
+
+def test_ntp_step_while_untrusted_merges_the_prebuffer(tmp_path, monkeypatch):
+    """Regression: a clock step during the first 10 minutes after boot (time
+    synchronisation) marked the clock trusted without converting the
+    buffered samples, so they were stranded and never saved."""
+    eng, _ = make_engine(tmp_path)
+    eng.service.demo = False  # production trust rules
+    monkeypatch.setattr(eng, "_uptime", lambda: 120.0)  # 2 minutes after boot
+    wall = {"t": 1_790_000_000.0}
+    monkeypatch.setattr(eng.p, "time", lambda: wall["t"])
+    eng.clock_trusted = False
+    eng.wall_offset = None
+    eng._check_clock(500.0)
+    assert not eng.clock_trusted  # not yet: uptime < 10 minutes, no sync seen
+    eng._emit("wan", "*", 560.0, 60.0, 7777, 1111)
+    assert eng.prebuffer and not eng.store.pending
+    wall["t"] += 3600 + 60  # NTP steps the clock by an hour (60 s of monotonic time passed)
+    eng._check_clock(560.0)
+    assert eng.clock_trusted and eng.trusted_at_mono == 560.0
+    assert eng.prebuffer == {}
+    assert eng.store.summary("wan", "*", 0, 1_800_000_000)[stmod.RX] == 7777
+    eng.store.close()
+
+
+def test_selfmon_is_safe_to_read_while_observing():
+    import threading
+
+    m = selfmon.SelfMonitor()
+    stop = threading.Event()
+    errors = []
+
+    def reader():
+        while not stop.is_set():
+            try:
+                m.summaries(1_790_000_000 + 10**6)
+            except Exception as exc:
+                errors.append(exc)
+
+    t = threading.Thread(target=reader)
+    t.start()
+    for i in range(30000):
+        m.observe(1.79e9 + i * 5, i * 5.0, {"self_cpu_percent": 1.0}, _counters(i))
+    stop.set()
+    t.join()
+    assert not errors

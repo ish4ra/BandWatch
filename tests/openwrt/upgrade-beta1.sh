@@ -33,8 +33,9 @@ check() {
 		pass "$desc"
 	else
 		failt "$desc"
-		sed 's/^/    /' /tmp/bw-up-out.$$ | tail -25
-		docker exec "$NAME" sh -c 'logread | grep -i bandwatch | tail -n 15' 2>&1 | sed 's/^/    /'
+		sed 's/^/    /' /tmp/bw-up-out.$$ | grep -v '^\s*~*\^*$' | tail -40
+		echo "    --- service state, files, recent log:"
+		docker exec "$NAME" sh -c '/etc/init.d/bandwatch running && echo running || echo "not running"; ls -la /etc/bandwatch /var/run/bandwatch; logread | tail -n 40' 2>&1 | sed 's/^/    /'
 	fi
 }
 boot() {
@@ -50,7 +51,7 @@ trap cleanup EXIT
 # -- 1. release archive installer -------------------------------------------------------
 boot
 check "install published beta.1" "cd /tmp && tar -xzf /beta1/bandwatch-$OLD-openwrt.tar.gz && cd bandwatch-$OLD && sh install.sh >/tmp/i1.log && cat /usr/lib/bandwatch/VERSION | grep -qx $OLD"
-check "seed history, alias, settings, secret, password with beta.1 code" "/etc/init.d/bandwatch stop; $H seed && uci set bandwatch.main.log_level=debug && uci commit bandwatch && /etc/init.d/bandwatch start && $WAIT_UP && sleep 3 && $H verify $OLD"
+check "seed history, alias, settings, secret, password with beta.1 code" "/etc/init.d/bandwatch stop; uci set bandwatch.main.log_level=debug && uci commit bandwatch && $H seed && /etc/init.d/bandwatch start && $WAIT_UP && sleep 3 && $H verify $OLD"
 check "upgrade to $VER without uninstalling (installer)" "cd /tmp && tar -xzf /dist/bandwatch-$VER-openwrt.tar.gz && cd bandwatch-$VER && sh install.sh | tee /tmp/i2.log | grep -q 'is installed' && grep -q 'will be upgraded' /tmp/i2.log"
 check "data, password, settings, aliases and config kept; lifecycle says upgrade" "$WAIT_UP && $H verify $VER upgrade && [ \"\$(uci get bandwatch.main.log_level)\" = debug ] && test -f /www/luci-static/resources/view/bandwatch/dashboard.js"
 check "roll back to beta.1 (installer) keeps data" "/etc/init.d/bandwatch stop; cd /tmp/bandwatch-$OLD && sh install.sh >/tmp/i3.log && $WAIT_UP && sleep 2 && $H verify $OLD"

@@ -784,8 +784,8 @@ views.health = {
           ${h.events.length ? `<ul class="events">${h.events.map((e) => `<li class="${esc(e.level)}"><time>${ago(e.t)}</time><span>${esc(e.message)}</span></li>`).join('')}</ul>` : '<p class="muted">No events since the service started.</p>'}</article>
       </section>
       <section class="card"><header class="card-h"><div><h2>BandWatch resource use</h2><p class="sub">Recorded automatically every 5 seconds, summarised every 15 minutes, kept on the router</p></div></header>
-        <table class="table"><thead><tr><th>Period</th><th class="num">CPU avg / peak</th><th class="num">Memory avg / peak</th><th class="num">Sampled (samples)</th><th class="num">Collector errors</th></tr></thead><tbody>
-        ${resourceRow('Last hour', h.resources && h.resources.last_hour)}${resourceRow('Last 24 hours', h.resources && h.resources.last_24h)}</tbody></table>
+        <div class="table-scroll"><table class="table resources"><thead><tr><th>Period</th><th class="num">CPU avg / peak</th><th class="num">Memory avg / peak</th><th class="num">Sampled (samples)</th><th class="num">Collector errors</th></tr></thead><tbody>
+        ${resourceRow('Last hour', h.resources && h.resources.last_hour)}${resourceRow('Last 24 hours', h.resources && h.resources.last_24h)}</tbody></table></div>
         <p class="note subtle">Measured during normal use, including serving this dashboard — not an idle benchmark. Targets: average CPU below 2%, memory below 30 MiB. Missed WAN samples: ${h.sampling ? h.sampling.missed : 0} of ${h.sampling ? h.sampling.samples + h.sampling.missed : 0}.</p></section>`;
     };
     await load();

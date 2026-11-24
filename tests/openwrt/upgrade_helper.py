@@ -24,7 +24,22 @@ PASSWORD = "upgrade-pass-1"
 MAC = "aa:bb:cc:00:11:22"
 
 
+def _drop_to_service_user():
+    """Write the seed data as the service user, like the running service."""
+    import os
+    import pwd
+
+    if os.getuid() == 0:
+        try:
+            pw = pwd.getpwnam("bandwatch")
+        except KeyError:
+            return
+        os.setgid(pw.pw_gid)
+        os.setuid(pw.pw_uid)
+
+
 def seed():
+    _drop_to_service_user()
     sys.path.insert(0, "/usr/lib/bandwatch")
     from bandwatch import __version__, auth, config, store
 
@@ -45,6 +60,16 @@ def seed():
 
 
 def _req(method, path, body=None, cookie=None):
+    # The service may still be (re)starting: wait up to 60 s for the socket.
+    for _ in range(60):
+        try:
+            return _req_once(method, path, body, cookie)
+        except (ConnectionRefusedError, ConnectionResetError, http.client.RemoteDisconnected):
+            time.sleep(1)
+    return _req_once(method, path, body, cookie)
+
+
+def _req_once(method, path, body=None, cookie=None):
     c = http.client.HTTPConnection("127.0.0.1", 8787, timeout=20)
     h = {"Host": "192.168.1.1"}
     if body is not None:

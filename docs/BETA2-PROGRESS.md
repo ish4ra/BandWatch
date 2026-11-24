@@ -14,7 +14,7 @@ resume without repeating work. Remove or archive it after the release.
 | 1 | Repository inspection, plan, Firefox reproduction harness | done |
 | 2 | Database reliability and diagnostic privacy | done |
 | 3 | Automatic local diagnostics and one-click report | done (UI + API + tests) |
-| 4 | Hardware compatibility and upgrade from beta.1 | in progress: code-level upgrade test from the published beta.1 done; OpenWrt package upgrade test, docs pending |
+| 4 | Hardware compatibility and upgrade from beta.1 | done in code/docs; OpenWrt container upgrade test (`tests/openwrt/upgrade-beta1.sh`) being stabilised in CI |
 | 5 | Firefox investigation (issue #2) | in progress (see below) |
 | 6 | Manual update checker | done (browser-side; UI test with GitHub mocked) |
 | 7 | Final testing, packaging, docs, PR | pending |
@@ -71,6 +71,25 @@ context close vs navigation, each in a fresh browser.
 - Tests: `test_persistence.py`, `test_report_privacy.py`,
   `test_upgrade_beta1.py` (needs `BW_BETA1_TARBALL`; CI downloads and
   verifies it), UI checks for report download and update check.
+
+## Done in milestone 4
+
+- Version bumped to 0.1.0-beta.2 (`__init__`, sw.js cache, pyproject, feed
+  Makefile VERSION file, issue template, release workflow default).
+- `tests/test_hardware_compat.py`: ModemManager `_4`/`_6` sub-interfaces,
+  modem reconnect, aria2 with/without secret, no ssl/_hashlib, AW1000-shaped
+  demo report.
+- **Bug fixed**: an NTP clock step while the clock was untrusted set the
+  trusted flag without merging the pre-buffer (samples stranded, then lost).
+  Regression test `test_ntp_step_while_untrusted_merges_the_prebuffer`
+  (fails on the old code).
+- Self-monitor made thread-safe (summaries read from web threads);
+  `oldest_sample_time()` cached (min() over m1/m15 scans whole tables).
+- Docs: UPGRADE.md, UPGRADE-SINHALA.md, release notes, CHANGELOG, README,
+  COMPATIBILITY, HARDWARE-TESTING (first physical result), PERFORMANCE
+  (snapshot + measured cost of diagnostics, `tests/bench_diagnostics.py`),
+  SECURITY, SECURITY-AUDIT (D1-D3), TROUBLESHOOTING, INSTALL, traceability,
+  tester README; screenshots `health-dark.png`, `settings-report-dark.png`.
 
 ## Firefox evidence so far
 

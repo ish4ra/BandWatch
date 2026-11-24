@@ -423,6 +423,8 @@ input[type="checkbox"] { min-height: 0; width: 16px; height: 16px; accent-color:
 .check-counts b { font-variant-numeric: tabular-nums; margin-right: 2px; }
 details.checks-list summary, details.release-notes summary { cursor: pointer; color: var(--c-accent); font-size: 13px; font-weight: 600; padding: 6px 0; }
 details.checks-list .table td:first-child { width: 1%; white-space: nowrap; vertical-align: top; }
+.table-scroll { overflow-x: auto; }
+.table.resources th, .table.resources .num { white-space: normal; }
 details.release-notes pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 280px; overflow: auto; font: 12px/1.5 var(--font-mono, ui-monospace, monospace); background: var(--c-elevated); border-radius: 8px; padding: 10px 12px; margin: 6px 0 0; }
 
 @media (max-width: 1180px) {
