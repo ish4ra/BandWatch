@@ -1,0 +1,55 @@
+name: Firefox stall investigation
+
+# Isolated reproduction for issue #2. Runs only when the reproduction itself
+# changes (or on demand), so focused debugging does not re-run the whole CI.
+# This job measures; it is not a required check and hides nothing: the full
+# Firefox UI suite still runs (and must pass) in CI.
+
+on:
+  push:
+    branches: ["claude/**"]
+    paths:
+      - "tests/firefox-repro/**"
+      - ".github/workflows/firefox-investigation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: Stall reproduction (${{ matrix.browser }} run ${{ matrix.run }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { browser: firefox, run: 1 }
+          - { browser: firefox, run: 2 }
+          - { browser: chromium, run: 1 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright
+        working-directory: tests/frontend
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Run variants
+        env:
+          BROWSER: ${{ matrix.browser }}
+          REPRO_ITER: "30"
+          REPRO_OUT: repro-${{ matrix.browser }}-${{ matrix.run }}.json
+        run: node tests/firefox-repro/repro.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repro-${{ matrix.browser }}-${{ matrix.run }}
+          path: repro-*.json
+          retention-days: 14
