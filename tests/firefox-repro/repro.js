@@ -25,7 +25,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const ITER = Number(process.env.REPRO_ITER || 30);
 const BUDGET_MS = Number(process.env.REPRO_BUDGET_MS || 300000);
 const STALL_MS = 8000;
-const STEP_TIMEOUT = 120000;
+const STEP_TIMEOUT = Number(process.env.REPRO_STEP_TIMEOUT || 120000);
 
 const VARIANTS = {
   'min-poll-close': { server: 'min', q: 'sse=0&sw=0', mode: 'close' },
@@ -66,11 +66,35 @@ function startProc(args, readyText, port) {
   };
 }
 
-async function timed(fn) {
+// When a load stalls, ask the page itself what state it is in. If the
+// document reports readyState "complete" while Playwright still waits for
+// "load", the browser finished and the automation layer missed the event;
+// if it is still "loading", the listed resources show what arrived.
+async function probe(page) {
+  if (!page) return null;
+  const evalP = page.evaluate(() => {
+    const res = performance.getEntriesByType('resource').map((e) => `${new URL(e.name).pathname} ${Math.round(e.startTime)}-${Math.round(e.responseEnd)}ms`);
+    const nav = performance.getEntriesByType('navigation')[0];
+    return {
+      href: location.href,
+      readyState: document.readyState,
+      swController: !!(navigator.serviceWorker && navigator.serviceWorker.controller),
+      navigation: nav ? { type: nav.type, responseEnd: Math.round(nav.responseEnd), domComplete: Math.round(nav.domComplete), loadEventEnd: Math.round(nav.loadEventEnd) } : null,
+      resources: res.slice(-12),
+      mainCards: document.querySelectorAll('#main .card').length,
+      sinceOrigin: Math.round(performance.now()),
+    };
+  });
+  const timeout = new Promise((r) => setTimeout(() => r('page.evaluate did not answer within 5 s'), 5000));
+  return Promise.race([evalP, timeout]).catch((e) => `page.evaluate failed: ${String(e.message || e).split('\n')[0]}`).then((r) => ({ playwrightUrl: page.url(), page: r }));
+}
+
+async function timed(fn, page) {
   const t0 = Date.now();
   let err = null;
   try { await fn(); } catch (e) { err = String(e.message || e).split('\n')[0]; }
-  return { ms: Date.now() - t0, err };
+  const ms = Date.now() - t0;
+  return { ms, err, probe: err || ms > STALL_MS ? await probe(page) : undefined };
 }
 
 async function runVariant(name, v, port) {
@@ -103,7 +127,7 @@ async function runVariant(name, v, port) {
         loads.push(await timed(async () => {
           await page.goto(`${base}/?${v.q}&i=${i}`, { timeout: STEP_TIMEOUT });
           await page.waitForSelector('body[data-ready]', { timeout: STEP_TIMEOUT });
-        }));
+        }, page));
         await page.waitForTimeout(400);
         await ctx.close(); // requests (and the stream) are still in flight
       }
@@ -115,7 +139,7 @@ async function runVariant(name, v, port) {
         loads.push(await timed(async () => {
           await page.goto(`${base}/?${v.q}&i=${i}`, { timeout: STEP_TIMEOUT });
           await page.waitForSelector('body[data-ready]', { timeout: STEP_TIMEOUT });
-        }));
+        }, page));
         await page.waitForTimeout(400);
       }
       await ctx.close();
@@ -132,7 +156,7 @@ async function runVariant(name, v, port) {
             loads.push(await timed(async () => {
               await page.goto(`${base}/#/${view}`, { timeout: STEP_TIMEOUT });
               await page.waitForSelector('#main .card', { timeout: STEP_TIMEOUT });
-            }));
+            }, page));
             await page.waitForTimeout(900);
             await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth).catch(() => {});
           }
@@ -158,7 +182,7 @@ async function runVariant(name, v, port) {
           loads.push(await timed(async () => {
             await page.goto(`${base}/#/${view}`, { timeout: STEP_TIMEOUT });
             await page.waitForSelector('#main .card', { timeout: STEP_TIMEOUT });
-          }));
+          }, page));
           await page.waitForTimeout(600);
         }
         await ctx.close();
@@ -177,6 +201,7 @@ async function runVariant(name, v, port) {
     stalls: stalls.length,
     stall_ms: stalls.map((s) => s.ms),
     errors: [...new Set(stalls.map((s) => s.err).filter(Boolean))].slice(0, 3),
+    probes: stalls.map((s) => s.probe).filter(Boolean).slice(0, 4),
     median_ms: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null,
     max_ms: sorted.length ? sorted[sorted.length - 1] : null,
     failed_request_kinds: [...new Set(failed)].slice(0, 6),
@@ -199,6 +224,7 @@ async function runVariant(name, v, port) {
     console.log(`${r.stalls ? 'STALL' : 'clean'}  ${name.padEnd(32)} loads=${r.loads} stalls=${r.stalls} median=${r.median_ms}ms max=${r.max_ms}ms ${r.stall_ms.length ? `stall_ms=[${r.stall_ms.join(',')}]` : ''}`);
     if (r.errors.length) console.log(`       errors: ${r.errors.join(' | ')}`);
     if (r.failed_request_kinds.length) console.log(`       aborted requests seen: ${r.failed_request_kinds.join(' | ')}`);
+    for (const p of r.probes) console.log(`       stalled page: ${JSON.stringify(p)}`);
   }
   const file = process.env.REPRO_OUT || path.join(os.tmpdir(), `firefox-repro-${BROWSER}.json`);
   fs.writeFileSync(file, JSON.stringify({ browser: BROWSER, iterations: ITER, results: out }, null, 1));

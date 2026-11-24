@@ -27,7 +27,6 @@ jobs:
         include:
           - { browser: firefox, run: 1 }
           - { browser: firefox, run: 2 }
-          - { browser: chromium, run: 1 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,8 +44,9 @@ jobs:
         env:
           BROWSER: ${{ matrix.browser }}
           REPRO_ITER: "72"
-          REPRO_BUDGET_MS: "420000"
-          REPRO_VARIANTS: "uitest-keepopen-sw uitest-keepopen-nosw uitest-close-sw uitest-close-nosw"
+          REPRO_BUDGET_MS: "600000"
+          REPRO_STEP_TIMEOUT: "30000"
+          REPRO_VARIANTS: "uitest-keepopen-nosw uitest-close-sw"
           REPRO_OUT: repro-${{ matrix.browser }}-${{ matrix.run }}.json
         run: node tests/firefox-repro/repro.js
       - uses: actions/upload-artifact@v4
