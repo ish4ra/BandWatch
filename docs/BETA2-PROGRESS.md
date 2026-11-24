@@ -15,9 +15,9 @@ resume without repeating work. Remove or archive it after the release.
 | 2 | Database reliability and diagnostic privacy | done |
 | 3 | Automatic local diagnostics and one-click report | done (UI + API + tests) |
 | 4 | Hardware compatibility and upgrade from beta.1 | done in code/docs; OpenWrt container upgrade test (`tests/openwrt/upgrade-beta1.sh`) being stabilised in CI |
-| 5 | Firefox investigation (issue #2) | in progress (see below) |
+| 5 | Firefox investigation (issue #2) | root cause located in Playwright's Firefox driver; not fixed (see below) |
 | 6 | Manual update checker | done (browser-side; UI test with GitHub mocked) |
-| 7 | Final testing, packaging, docs, PR | pending |
+| 7 | Final testing, packaging, docs, PR | in progress: draft PR https://github.com/ish4ra/BandWatch/pull/3 |
 
 ## Findings from inspection (milestone 1)
 
@@ -109,8 +109,22 @@ Isolated workflow `firefox-investigation.yml`, reproduction `tests/firefox-repro
    the browser and app are fine; Playwright's Firefox driver (Juggler) lost
    the navigation lifecycle events, and every later wait hangs on that
    phantom navigation.
-4. Run (round 3, pending): does priming a new page (`goto('about:blank')`
-   or 500 ms delay) before the first navigation avoid it?
+4. Run 45314457152 (round 3): control stalled 2/2 runs; priming with
+   `about:blank` 1 stall in 144 loads; a 500 ms settle after `newPage()` 0
+   stalls in 144 loads.
+5. Run 45315671249: ui-test.js with the 500 ms settle and normal context
+   close (keep-open workaround removed): full Firefox suite still failed 3/4
+   repeats (1-2 checks each, same signature). => the settle reduces but does
+   not eliminate the Playwright race. Not a fix.
+6. Run 45317103725: **regular Firefox 160 via geckodriver: 2 x 150 new-tab
+   loads, 0 failures.** Playwright suite 2/4 repeats failed, each failure
+   categorised as "page loaded (readyState complete, 10 cards), Playwright
+   URL about:blank".
+
+Remaining blocker: the lost-event race is inside Playwright's Firefox
+driver; it needs an upstream fix (report to microsoft/playwright with
+`tests/firefox-repro/repro.js uitest-keepopen-nosw`), or a Firefox test
+harness that does not depend on Playwright's navigation lifecycle.
 
 ## Resume instructions
 

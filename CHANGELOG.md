@@ -88,9 +88,16 @@ diagnostic snapshot is not hardware acceptance.
   are tested against the **published** beta.1 code and packages (installer,
   apk and opkg).
 
-### Known issues
-- Firefox under Playwright: see [#2](https://github.com/ish4ra/BandWatch/issues/2)
-  and `docs/BETA2-PROGRESS.md` for the current evidence.
+### Firefox (issue #2) - root cause located, CI job still intermittent
+- Reproduced in an isolated workflow (`tests/firefox-repro/`): the stalled
+  page is fully loaded (`readyState` complete, dashboard rendered, polling
+  continuing) while Playwright still reports `about:blank` - Playwright's
+  Firefox driver loses the navigation events of a freshly created page. The
+  service worker is not involved (stalls with it blocked); the beta.1
+  "keep contexts open" workaround made stalls more frequent and is removed.
+- Regular Firefox 160 via geckodriver: 300 new-tab loads, 0 failures.
+- The Firefox UI job still fails intermittently; failures now state whether
+  the page had loaded. Needs an upstream Playwright fix.
 
 ## [0.1.0-beta.1] - 2026-11-21 (public beta prerelease)
 

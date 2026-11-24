@@ -82,7 +82,7 @@ BandWatch is architecture independent (pure Python, `noarch`/`all`).
 | --- | --- |
 | Chromium-based (Chrome, Edge, Brave) | Automated end-to-end tests pass (locally and in CI). **Recommended for the first hardware test round.** |
 | Safari / WebKit | Automated end-to-end tests pass (WebKit, CI only) |
-| Firefox | **Not verified.** The automated suite stalls intermittently under Playwright ([#2](https://github.com/ish4ra/BandWatch/issues/2)); whether real Firefox users are affected is not yet known |
+| Firefox | **Regular Firefox 160 loads every view reliably in CI** (geckodriver, 300 new-tab loads, 0 failures). The Playwright suite still fails intermittently because Playwright's patched Firefox loses the navigation events of a freshly created page while the page itself loads normally ([#2](https://github.com/ish4ra/BandWatch/issues/2)). Not yet tested by a human on a physical router |
 
 Safari on iOS/macOS is expected to work
 (standard ES2020, CSS `color-mix()` requires Safari ≥ 16.2 / Firefox ≥ 113 /

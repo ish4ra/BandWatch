@@ -24,7 +24,7 @@ BandWatch is a lightweight, local-first network intelligence dashboard for OpenW
 >
 > **First physical router result (one diagnostic snapshot, not hardware acceptance):** on an Arcadyan AW1000 (OpenWrt 25.12.5, qualcommax/ipq807x) beta.1 installed and ran in production mode; all six collectors reported OK; Bandix 0.12.12 reported eight devices; aria2 RPC connectivity was observed; BandWatch used 0.6 % CPU and about 17.2 MiB RSS at that moment, with no application loop errors. Traffic-accounting accuracy, sustained performance, WAN isolation and reboot recovery have **not** been verified yet.
 >
-> The CI badge includes one known, accepted failure: intermittent Firefox automated-test stalls ([#2](https://github.com/ish4ra/BandWatch/issues/2)). All other checks pass.
+> The CI badge includes one known failure: the Playwright Firefox job fails intermittently because the test driver loses page-load events ([#2](https://github.com/ish4ra/BandWatch/issues/2)); regular Firefox loads the dashboard reliably. All other checks pass.
 
 <br>
 
@@ -88,7 +88,7 @@ How each part has been verified:
 | Level | What it covers | Status |
 | --- | --- | --- |
 | Automated unit and integration tests | Backend (Python 3.10, 3.11, 3.13), security and lint checks, dashboard end-to-end tests (Chromium, WebKit) | ✅ Passing |
-| Firefox end-to-end tests | Same dashboard suite in Firefox | ⚠️ Intermittent harness stalls ([#2](https://github.com/ish4ra/BandWatch/issues/2)) |
+| Firefox end-to-end tests | Same dashboard suite in Firefox (Playwright) | ⚠️ Intermittent: Playwright loses page-load events ([#2](https://github.com/ish4ra/BandWatch/issues/2)); regular Firefox check passes |
 | OpenWrt container tests | Install, service, ubus ACL, SSO, HTTPS, upgrade, rollback, uninstall, purge safety, tester helper on 25.12 and 24.10 rootfs; real LuCI end-to-end | ✅ Passing |
 | OpenWrt SDK build | Feed Makefiles built with the 25.12 SDK | ✅ Passing |
 | **Physical router** | Arcadyan AW1000 (qualcommax/ipq807x), OpenWrt 25.12.5 | ⏳ **Not yet tested** |
@@ -180,7 +180,7 @@ See [SECURITY.md](SECURITY.md) and the [security audit](docs/SECURITY-AUDIT.md).
 - **Per-device monitoring needs a provider** (Bandix or nlbwmon). Without one, only WAN totals are available.
 - **Hardware or software flow offloading** can bypass the counters some providers rely on, so per-device totals may be lower than the WAN total.
 - **aria2 history is an estimate** of payload traffic. Downloads that start and finish between two polls are reported as "not counted".
-- **Firefox**: automated tests stall intermittently ([#2](https://github.com/ish4ra/BandWatch/issues/2)). Firefox is not verified for this beta; use a Chromium-based browser or Safari.
+- **Firefox**: regular Firefox loads the dashboard reliably in automated checks, but the Playwright-based Firefox suite still fails intermittently because Playwright's Firefox driver loses page-load events ([#2](https://github.com/ish4ra/BandWatch/issues/2)). Chromium-based browsers and Safari remain the recommended browsers for this beta.
 - **Unsigned packages.** Verify `SHA256SUMS` before installing.
 - **Plain HTTP by default.** HTTPS with a self-signed certificate is optional.
 
