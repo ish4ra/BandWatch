@@ -123,6 +123,31 @@ function statePill(st) {
   return `<span class="pill ${cls}"><i></i>${label}</span>`;
 }
 
+// Diagnostic check results (passed / failed / warning / insufficient_data / not_tested / unavailable).
+const CHECK_STATUS = { passed: ['ok', 'Passed'], failed: ['err', 'Failed'], warning: ['warn', 'Warning'], insufficient_data: ['off', 'Insufficient data'], not_tested: ['off', 'Not tested'], unavailable: ['off', 'Unavailable'] };
+function checkPill(st) {
+  const [cls, label] = CHECK_STATUS[st] || ['off', st];
+  return `<span class="pill ${cls}"><i></i>${label}</span>`;
+}
+
+const PERSIST_PILL = { ok: ['ok', 'Saving'], collecting: ['off', 'Collecting'], waiting_for_clock: ['off', 'Waiting for clock'], failing: ['err', 'Save failed'], overdue: ['warn', 'Overdue'], no_samples: ['warn', 'No samples'] };
+
+const REPORT_INFO = 'The report contains versions, router model and firmware, collector states and error codes, resource summaries, database health and check results. It never contains passwords, secrets, IP or MAC addresses, device names, Wi-Fi names, URLs, download names or file paths. It is generated on the router and downloaded only to this browser — BandWatch never uploads it.';
+
+function reportCard(id) {
+  return `<article class="card report-card" id="${id}"><header class="card-h"><div><h2>${icons.download} Diagnostic report</h2><p class="sub">One click, no SSH or commands needed</p></div></header>
+    <p class="small">${REPORT_INFO}</p>
+    <div class="btn-row"><button class="btn primary" type="button" data-report="zip">${icons.download} Download Diagnostic Report</button><button class="btn ghost small" type="button" data-report="json">JSON only</button></div>
+    <p class="help">Attach the downloaded ZIP file to your bug report or send it to the maintainer. You can open it first to see exactly what it contains.</p></article>`;
+}
+
+function bindReportButtons(root) {
+  $$('[data-report]', root).forEach((b) => b.addEventListener('click', () => {
+    download(b.dataset.report === 'zip' ? '/api/diagnostics/report.zip' : '/api/diagnostics/report.json');
+    toast('Preparing the diagnostic report…');
+  }));
+}
+
 function bigValue(parts, cls = '') {
   return `<span class="big ${cls}">${esc(parts.num)}<small>${esc(parts.unit)}</small></span>`;
 }
@@ -683,11 +708,52 @@ views.history = {
 
 // -- Health -------------------------------------------------------------------------
 
+function resourceRow(label, r) {
+  if (!r || !r.samples) return `<tr><td data-label="Period">${label}</td><td colspan="4" class="muted">Not enough data yet</td></tr>`;
+  const pct = (v) => (v === null || v === undefined ? '—' : `${v.toFixed(2)}%`);
+  const mem = (v) => (v ? bytes(v) : '—');
+  return `<tr><td data-label="Period">${label}</td><td data-label="CPU avg / peak" class="num">${pct(r.cpu_avg_percent)} / ${pct(r.cpu_peak_percent)}</td><td data-label="Memory avg / peak" class="num">${mem(r.rss_avg_bytes)} / ${mem(r.rss_peak_bytes)}</td><td data-label="Sampled" class="num">${duration(r.duration_s)} (${r.samples})</td><td data-label="Collector errors" class="num">${r.collector_errors}</td></tr>`;
+}
+
+function persistenceCard(h) {
+  const p = h.persistence;
+  const db = h.database;
+  const [cls, label] = PERSIST_PILL[p.state] || ['off', p.state];
+  const lc = h.lifecycle && h.lifecycle.current;
+  const startText = lc ? ({ first_start: 'first start', upgrade: 'first start after upgrade', after_reboot: 'after a router reboot', restart: 'service restart' }[lc.kind] || lc.kind) + (lc.previous_stop === 'unclean' ? ' (previous run did not stop cleanly)' : '') : '—';
+  return `<article class="card"><header class="card-h"><h2>Database &amp; history</h2><span class="pill ${cls}"><i></i>${label}</span></header>
+    <p class="note ${p.state === 'failing' ? 'err' : p.state === 'overdue' || p.state === 'no_samples' ? 'warn' : ''}">${icons.info}<span>${esc(p.explanation)}</span></p>
+    <ul class="kv"><li><span>Service uptime</span><b>${duration(p.service_uptime_s)}</b></li><li><span>Router uptime</span><b>${p.router_uptime_s !== null && p.router_uptime_s !== undefined ? duration(p.router_uptime_s) : '—'}</b></li><li><span>Started</span><b>${esc(startText)}</b></li><li><span>Last successful save</span><b>${p.last_successful_save ? ago(p.last_successful_save) : 'not yet'}</b></li><li><span>Next save</span><b>${p.next_flush_in_s !== null && p.next_flush_in_s !== undefined ? `in ${duration(p.next_flush_in_s)}` : '—'}</b></li><li><span>Save interval</span><b>${duration(p.flush_interval_s)}</b></li><li><span>Unsaved buckets</span><b>${p.pending_buckets}${p.prebuffered_buckets ? ` (${p.prebuffered_buckets} waiting for the clock)` : ''}</b></li><li><span>Last save error</span><b>${p.last_flush_error_code ? esc(p.last_flush_error_code) : 'none'}</b></li><li><span>Size</span><b>${bytes(db.size_bytes)}</b></li><li><span>Database opened in</span><b>${p.database_open_ms} ms · ${esc(p.journal_mode)} · schema ${p.schema_version}</b></li><li><span>Integrity check at start</span><b>${p.integrity_check === 'ok' ? 'passed' : esc(p.integrity_check)}</b></li><li><span>Rows (1 min / 15 min / day)</span><b>${db.rows_m1} / ${db.rows_m15} / ${db.rows_d1}</b></li></ul>
+    ${db.recovered_from ? `<p class="note warn">${icons.alert}<span>The database was damaged and has been recreated. The damaged copy was kept as ${esc(db.recovered_from)}.</span></p>` : ''}
+    ${db.last_flush_error ? `<p class="note err">${icons.alert}<span>${esc(db.last_flush_error)}</span></p>` : ''}
+    <p class="note subtle">Samples are written in batches to limit flash wear (the first save comes ${duration(p.first_flush_delay_s)} after start-up). Up to ${duration(p.flush_interval_s)} of the most recent samples can be lost on a sudden power failure; a normal reboot or restart saves them first.</p></article>`;
+}
+
+function checksBody(c) {
+  const order = ['failed', 'warning', 'insufficient_data', 'unavailable', 'not_tested', 'passed'];
+  const counts = order.filter((k) => c.summary_counts[k]).map((k) => `${checkPill(k)} <b>${c.summary_counts[k]}</b>`).join(' ');
+  const rows = [...c.checks].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+  return `<p class="check-counts">${counts}</p>
+    <details class="checks-list"><summary>Show all ${rows.length} checks</summary>
+      <table class="table compact"><tbody>${rows.map((x) => `<tr><td data-label="Result">${checkPill(x.status)}</td><td data-label="Check"><b>${esc(x.title)}</b><div class="small muted">${esc(x.detail)}</div></td></tr>`).join('')}</tbody></table>
+      <h3 class="h3">Not verified by these checks</h3><ul class="notes">${c.unverified.map((u) => `<li>${icons.info}<span>${esc(u)}</span></li>`).join('')}</ul>
+    </details>`;
+}
+
 views.health = {
   title: 'System health',
   async mount(el) {
-    el.innerHTML = `<div id="hl">${skeleton(6)}</div>`;
+    el.innerHTML = `<section class="grid two">${reportCard('h-report')}<article class="card" id="h-checks"><header class="card-h"><div><h2>Self-check</h2><p class="sub">What BandWatch could verify on this router</p></div><button class="btn small ghost" type="button" id="h-recheck">Check again</button></header><div id="h-checks-body">${skeleton(2)}</div></article></section><div id="hl">${skeleton(6)}</div>`;
     const alive = viewAlive();
+    bindReportButtons(el);
+    const loadChecks = async () => {
+      try {
+        const c = await api('/api/diagnostics/checks');
+        if (alive()) $('#h-checks-body', el).innerHTML = checksBody(c);
+      } catch (e) { if (e.status !== 401 && alive()) $('#h-checks-body', el).innerHTML = `<p class="err-text">${esc(e.message)}</p>`; }
+    };
+    $('#h-recheck', el).addEventListener('click', loadChecks);
+    loadChecks();
     const load = async () => {
       let h;
       try { h = await api('/api/health'); } catch (e) { if (e.status !== 401 && alive()) $('#hl', el).innerHTML = errorCard(e, load); return; }
@@ -704,23 +770,23 @@ views.health = {
           <ul class="kv"><li><span>${icons.db} BandWatch database</span><b id="h-dbsize">${bytes(db.size_bytes)}</b></li><li><span>Stored on</span><b>${esc(s.data_filesystem || (h.demo ? 'simulated overlay' : 'unknown'))}</b></li></ul>
           <p class="note subtle">Filesystem bars show the whole filesystem; BandWatch itself only uses the database size above.</p>
           <h3 class="h3">BandWatch process</h3>
-          <ul class="kv"><li><span>Version</span><b>${esc(h.version)}${h.demo ? ' (demo)' : ''}</b></li><li><span>Service uptime</span><b>${duration(h.uptime_service)}</b></li><li><span>Memory (RSS)</span><b>${s.self_rss ? bytes(s.self_rss) : '—'}</b></li><li><span>CPU</span><b>${s.self_cpu_percent !== undefined ? `${s.self_cpu_percent.toFixed(2)}%` : '—'}</b></li><li><span>Threads</span><b>${s.self_threads || '—'}</b></li><li><span>Timezone</span><b>${esc(h.timezone)}</b></li><li><span>Clock</span><b>${h.clock_trusted ? 'synchronised' : 'waiting for a trustworthy clock (samples are buffered)'}</b></li></ul></article>
+          <ul class="kv"><li><span>Version</span><b>${esc(h.version)}${h.demo ? ' (demo)' : ''}</b></li><li><span>Service uptime</span><b>${duration(h.uptime_service)}</b></li><li><span>Starts recorded</span><b>${h.lifecycle ? h.lifecycle.starts : '—'}</b></li><li><span>Memory (RSS)</span><b>${s.self_rss ? bytes(s.self_rss) : '—'}</b></li><li><span>CPU</span><b>${s.self_cpu_percent !== undefined ? `${s.self_cpu_percent.toFixed(2)}%` : '—'}</b></li><li><span>Threads</span><b>${s.self_threads || '—'}</b></li><li><span>Timezone</span><b>${esc(h.timezone)}</b></li><li><span>Clock</span><b>${h.clock_trusted ? 'synchronised' : 'waiting for a trustworthy clock (samples are buffered)'}</b></li></ul></article>
       </section>
       <section class="card"><header class="card-h"><h2>Collectors</h2></header>
         <table class="table"><thead><tr><th>Collector</th><th>State</th><th>Details</th><th>Last success</th><th class="num">Failures</th></tr></thead><tbody>
         ${h.collectors.map((c) => `<tr><td data-label="Collector"><b>${esc(c.label)}</b>${c.version ? `<small class="muted"> v${esc(c.version)}</small>` : ''}</td><td data-label="State">${statePill(c.state)}</td><td data-label="Details">${esc(c.message)}${(c.notes || []).map((n) => `<div class="small muted">${esc(n)}</div>`).join('')}</td><td data-label="Last success">${ago(c.last_ok)}</td><td data-label="Failures" class="num">${c.error_count}</td></tr>`).join('')}
         </tbody></table></section>
       <section class="grid two">
-        <article class="card"><header class="card-h"><h2>Database</h2>${statePill(db.last_flush_error ? 'error' : db.recovered_from ? 'degraded' : 'ok')}</header>
-          <ul class="kv"><li><span>Size</span><b>${bytes(db.size_bytes)}</b></li><li><span>Schema version</span><b>${db.schema_version}</b></li><li><span>Journal mode</span><b>${esc(db.journal_mode)}</b></li><li><span>Last saved</span><b>${db.last_flush ? ago(db.last_flush) : 'not yet'}</b></li><li><span>Save interval</span><b>${duration(h.flush_interval)}</b></li><li><span>Unsaved buckets</span><b>${db.pending_buckets}</b></li><li><span>Rows (1 min / 15 min / day)</span><b>${db.rows_m1} / ${db.rows_m15} / ${db.rows_d1}</b></li></ul>
-          ${db.recovered_from ? `<p class="note warn">${icons.alert}<span>The database was damaged and has been recreated. The damaged copy was kept as ${esc(db.recovered_from)}.</span></p>` : ''}
-          ${db.last_flush_error ? `<p class="note err">${icons.alert}<span>${esc(db.last_flush_error)}</span></p>` : ''}
-          <p class="note subtle">Samples are written in batches to limit flash wear. Up to ${duration(h.flush_interval)} of the most recent samples can be lost on a sudden power failure.</p></article>
+        ${persistenceCard(h)}
         <article class="card"><header class="card-h"><h2>Accounting notes</h2></header>
           ${(h.accounting_notes || []).length ? `<ul class="notes">${h.accounting_notes.map((n) => `<li>${icons.info}<span>${esc(n)}</span></li>`).join('')}</ul>` : '<p class="muted">No known accounting limitations detected.</p>'}
           <h3 class="h3">Recent events</h3>
           ${h.events.length ? `<ul class="events">${h.events.map((e) => `<li class="${esc(e.level)}"><time>${ago(e.t)}</time><span>${esc(e.message)}</span></li>`).join('')}</ul>` : '<p class="muted">No events since the service started.</p>'}</article>
-      </section>`;
+      </section>
+      <section class="card"><header class="card-h"><div><h2>BandWatch resource use</h2><p class="sub">Recorded automatically every 5 seconds, summarised every 15 minutes, kept on the router</p></div></header>
+        <table class="table"><thead><tr><th>Period</th><th class="num">CPU avg / peak</th><th class="num">Memory avg / peak</th><th class="num">Sampled (samples)</th><th class="num">Collector errors</th></tr></thead><tbody>
+        ${resourceRow('Last hour', h.resources && h.resources.last_hour)}${resourceRow('Last 24 hours', h.resources && h.resources.last_24h)}</tbody></table>
+        <p class="note subtle">Measured during normal use, including serving this dashboard — not an idle benchmark. Targets: average CPU below 2%, memory below 30 MiB. Missed WAN samples: ${h.sampling ? h.sampling.missed : 0} of ${h.sampling ? h.sampling.samples + h.sampling.missed : 0}.</p></section>`;
     };
     await load();
     every(10000, load);
@@ -740,6 +806,73 @@ function num(key, value, min, max, unit = '') {
 }
 function txt(key, value, extra = '') {
   return `<input type="text" id="f-${key}" data-key="${key}" data-type="str" value="${esc(value)}" ${extra}>`;
+}
+
+// -- Updates (manual, browser-side) ------------------------------------------------
+//
+// The check runs only when the user presses the button. The browser - not the
+// router - asks the GitHub API for the official repository's releases, so it
+// works without Python's ssl module and keeps TLS verification in the
+// browser. No cookies, referrer, router or device information are sent.
+
+const REPO_URL = 'https://github.com/ish4ra/BandWatch';
+const RELEASES_API = 'https://api.github.com/repos/ish4ra/BandWatch/releases?per_page=10';
+const UPGRADE_DOC = `${REPO_URL}/blob/main/docs/UPGRADE.md`;
+
+export function parseVersion(v) {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.?(\d+)?)?$/.exec(String(v || '').trim());
+  if (!m) return null;
+  return [+m[1], +m[2], +m[3], m[4] === undefined ? 3 : { alpha: 0, beta: 1, rc: 2 }[m[4]], m[5] ? +m[5] : 0];
+}
+
+export function compareVersions(a, b) {
+  const x = parseVersion(a);
+  const y = parseVersion(b);
+  if (!x || !y) return null;
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
+}
+
+function pickRelease(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((r) => r && !r.draft && parseVersion(r.tag_name) && typeof r.html_url === 'string' && r.html_url.startsWith(`${REPO_URL}/releases/`))
+    .sort((a, b) => compareVersions(b.tag_name, a.tag_name))[0] || null;
+}
+
+function updateResult(r, current) {
+  if (!r) return `<p class="muted">No release information found. <a href="${REPO_URL}/releases" target="_blank" rel="noopener noreferrer">Open GitHub Releases</a></p>`;
+  const cmp = compareVersions(r.tag_name, current);
+  const status = cmp > 0 ? `<p class="note">${icons.info}<span><b>A newer version is available.</b> Follow the upgrade instructions; your history and settings are kept.</span></p>` : cmp === 0 ? `<p class="note">${icons.check}<span>You are running the latest release.</span></p>` : `<p class="note">${icons.info}<span>Your version is newer than the latest published release (development build).</span></p>`;
+  const notes = String(r.body || '').replace(/\r/g, '').slice(0, 3000);
+  return `${status}<ul class="kv"><li><span>Available release</span><b>${esc(r.tag_name)}</b></li><li><span>Release type</span><b>${r.prerelease ? 'Beta (pre-release)' : 'Stable'}</b></li><li><span>Release date</span><b>${r.published_at ? esc(dateTime(Date.parse(r.published_at) / 1000)) : '—'}</b></li></ul>
+    <div class="btn-row"><a class="btn small" href="${esc(r.html_url)}" target="_blank" rel="noopener noreferrer">Open the release on GitHub</a><a class="btn small ghost" href="${UPGRADE_DOC}" target="_blank" rel="noopener noreferrer">Upgrade instructions</a></div>
+    ${notes ? `<details class="release-notes"><summary>Release notes</summary><pre>${esc(notes)}${String(r.body || '').length > 3000 ? '\n…' : ''}</pre></details>` : ''}`;
+}
+
+function mountUpdates(el, current) {
+  const last = (() => { try { return JSON.parse(localGet('bw.updateCheck') || 'null'); } catch { return null; } })();
+  el.innerHTML = `<header class="card-h"><div><h2>Updates</h2><p class="sub">Checked only when you ask</p></div><button class="btn small" type="button" id="u-check">Check for updates</button></header>
+    <ul class="kv"><li><span>Installed version</span><b>${esc(current)}</b></li><li><span>Last check</span><b id="u-last">${last && last.t ? `${esc(dateTime(last.t))} · ${esc(last.summary)}` : 'never'}</b></li></ul>
+    <div id="u-body"><p class="help">Your browser contacts api.github.com (the official ish4ra/BandWatch repository) directly. The router sends nothing, and no router, device or diagnostic information is included. Installation stays manual: see the <a href="${UPGRADE_DOC}" target="_blank" rel="noopener noreferrer">upgrade instructions</a>.</p></div>`;
+  $('#u-check', el).addEventListener('click', async () => {
+    const body = $('#u-body', el);
+    body.innerHTML = skeleton(2);
+    let summary;
+    try {
+      const res = await fetch(RELEASES_API, { credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', headers: { Accept: 'application/vnd.github+json' } });
+      if (!res.ok) throw new Error(res.status === 403 || res.status === 429 ? 'GitHub rate limit reached; try again later' : `GitHub answered ${res.status}`);
+      const r = pickRelease(await res.json());
+      body.innerHTML = updateResult(r, current);
+      const cmp = r ? compareVersions(r.tag_name, current) : null;
+      summary = !r ? 'no release found' : cmp > 0 ? `${r.tag_name} available` : 'up to date';
+    } catch (e) {
+      body.innerHTML = `<p class="note warn">${icons.alert}<span>Update check unavailable (${esc(e.message || 'network error')}). Check manually: <a href="${REPO_URL}/releases" target="_blank" rel="noopener noreferrer">GitHub Releases</a></span></p>`;
+      summary = 'check failed';
+    }
+    const rec = { t: Math.floor(Date.now() / 1000), summary };
+    localSet('bw.updateCheck', JSON.stringify(rec));
+    $('#u-last', el).textContent = `${dateTime(rec.t)} · ${summary}`;
+  });
 }
 
 views.settings = {
@@ -805,9 +938,13 @@ views.settings = {
         ${d.service.auth === 'none' ? '<p class="note warn">Authentication is disabled (loopback-only demo).</p>' : `<form id="pw-form" class="fields single"><div class="field"><label for="pw-cur">Current password</label><input type="password" id="pw-cur" autocomplete="current-password"></div><div class="field"><label for="pw-new">New password</label><input type="password" id="pw-new" autocomplete="new-password" minlength="8" required></div><div class="field"><label for="pw-new2">Repeat new password</label><input type="password" id="pw-new2" autocomplete="new-password" minlength="8" required></div><button class="btn" type="submit">Change password</button></form>`}
         <ul class="kv"><li><span>Listening on</span><b>${esc(d.service.listen.join(', '))} · port ${d.service.port}</b></li><li><span>Data directory</span><b>${esc(d.service.data_dir)}</b></li></ul>
         <p class="help">Network settings are changed in /etc/config/bandwatch on the router.</p></article>
-      <article class="card"><header class="card-h"><h2>Diagnostics &amp; export</h2></header>
-        <p>Diagnostics contain versions, collector states and settings, but no MAC addresses, IP addresses, hostnames or secrets.</p>
-        <div class="btn-row"><button class="btn" type="button" id="dl-diag">${icons.download} Diagnostics (JSON)</button><button class="btn ghost" type="button" id="dl-csv">${icons.download} Daily totals this year (CSV)</button><button class="btn ghost" type="button" id="dl-json">${icons.download} Daily totals (JSON)</button></div>
+      ${reportCard('s-report')}
+    </section>
+    <section class="grid two">
+      <article class="card" id="s-updates"></article>
+      <article class="card"><header class="card-h"><h2>Data export</h2></header>
+        <p class="small">Your traffic history as daily totals. These files contain device names and MAC addresses — share them only if you intend to.</p>
+        <div class="btn-row"><button class="btn ghost" type="button" id="dl-csv">${icons.download} Daily totals this year (CSV)</button><button class="btn ghost" type="button" id="dl-json">${icons.download} Daily totals (JSON)</button></div>
         <ul class="kv"><li><span>BandWatch</span><b>${esc(d.version)}</b></li><li><span>License</span><b>MIT</b></li><li><span>Telemetry</span><b>None</b></li></ul></article>
     </section>`;
     const form = $('#settings', el);
@@ -853,7 +990,8 @@ views.settings = {
         toast('Password changed');
       } catch (err) { toast(err.message, 'error'); }
     });
-    $('#dl-diag', el).addEventListener('click', () => download('/api/diagnostics'));
+    bindReportButtons(el);
+    mountUpdates($('#s-updates', el), d.version);
     $('#dl-csv', el).addEventListener('click', () => download('/api/export?format=csv&period=this_year'));
     $('#dl-json', el).addEventListener('click', () => download('/api/export?format=json&period=this_year'));
   },

@@ -11,7 +11,7 @@ import os
 import threading
 import time
 
-from . import __version__, analytics, log
+from . import __version__, analytics, log, selfmon
 from . import config as cfgmod
 from . import store as stmod
 from . import tz as tzmod
@@ -21,6 +21,15 @@ from .collectors import extras, identity, perdevice, wan
 MIN_VALID_WALL = 1748736000  # 2025-06-01: earlier clocks are certainly unsynchronised
 CLOCK_TRUST_UPTIME = 600.0
 GAP_RECOVERY_MAX = 7 * 86400
+# The first save after start-up (once the clock is trusted) happens sooner
+# than the regular interval, so persistence is confirmed within minutes of a
+# restart. One extra small write per service start; later saves keep the
+# configured interval.
+FIRST_FLUSH_DELAY = 90.0
+# Samples buffered before the clock was trusted are kept across a service
+# restart within the same boot (monotonic timestamps stay valid).
+MAX_SAVED_PREBUFFER = 6000
+LIFECYCLE_KEEP = 20
 
 
 class LiveSeries:
@@ -73,6 +82,7 @@ class Engine:
         self.flush_due = 0.0
         self.quota_alerted = None
         self.direction_check = collections.deque(maxlen=120)
+        self.direction_skipped = {"low_traffic": 0, "router_traffic": 0, "unattributed": 0, "symmetric": 0}
         self.loop_errors = 0
         self._build_collectors()
         self.live_window = max(120, self.settings["ui.live_window"])
@@ -80,8 +90,16 @@ class Engine:
         self.aria2_live = LiveSeries(450)
         self.dev_snaps = {}
         self.dev_live_ms = None
-        if self.store.meta("first_start") is None:
-            self.store.set_meta("first_start", int(time.time()))
+        self.boot_id = platform.boot_id()
+        self.clock_trusted_at = None
+        self.trusted_at_mono = None
+        self.early_flush_done = False
+        self.sample_stats = {"samples": 0, "late": 0, "missed": 0, "max_late_ms": 0}
+        self.bind_addresses = []  # set by the service launcher (server.resolve_listen)
+        self.wan_bytes_total = 0
+        self.monitor = selfmon.SelfMonitor(self.store)
+        self.lifecycle = self._record_start()
+        self._load_prebuffer()
         self.offload_notes = extras.offload_notes(platform)
         self.recovery = None
 
@@ -118,6 +136,8 @@ class Engine:
             if wall >= MIN_VALID_WALL and (up is None or up >= CLOCK_TRUST_UPTIME or self.service.demo):
                 self.clock_trusted = True
             if self.clock_trusted:
+                self.clock_trusted_at = wall
+                self.trusted_at_mono = now
                 # Samples gathered before the clock was trusted carry
                 # monotonic timestamps; convert them with the current offset.
                 with self.emit_lock:
@@ -128,6 +148,8 @@ class Engine:
 
     def _emit(self, series, key, mono_end, dt, rx, tx, rate_ok=True, est=False, count=True):
         with self.emit_lock:
+            if series == "wan" and key == "*" and not est:
+                self.wan_bytes_total += int(rx) + int(tx)
             if self.clock_trusted:
                 self.store.add(series, key, mono_end + self.wall_offset, dt, rx, tx, rate_ok, est, count)
             elif len(self.prebuffer) < 20000:
@@ -144,6 +166,99 @@ class Engine:
         while collector.events:
             level, kind, message = collector.events.pop(0)
             self._event(level, source, kind, message)
+
+    # -- service lifecycle (restart / reboot detection) ------------------------------
+
+    def _record_start(self):
+        """Classify this start and remember it (one small metadata write).
+
+        * ``first_start``: no earlier BandWatch run on this database.
+        * ``upgrade``: database from an older BandWatch that did not record
+          its lifecycle (0.1.0-beta.1).
+        * ``after_reboot``: the kernel boot id changed since the last run.
+        * ``restart``: same boot (service restart, crash or package upgrade).
+
+        ``previous_stop`` is ``clean`` when the last run reached
+        :meth:`stop`, ``unclean`` when it did not (crash, kill, power loss).
+        """
+        st = self.store
+        now = int(time.time())
+        first_start = st.meta("first_start")
+        prev_boot = st.meta("last_boot_id")
+        running = st.meta("running")
+        prev_version = st.meta("last_version")
+        try:
+            starts = int(st.meta("starts", "0"))
+        except ValueError:
+            starts = 0
+        if starts == 0 and prev_boot is None:
+            kind = "upgrade" if first_start is not None else "first_start"
+            previous_stop = None
+        else:
+            kind = "after_reboot" if (self.boot_id and prev_boot != self.boot_id) else "restart"
+            previous_stop = "unclean" if running == "1" else "clean"
+        up = self._uptime()
+        entry = {"t": now, "kind": kind, "previous_stop": previous_stop, "router_uptime": int(up) if up is not None else None, "version": __version__}
+        if prev_version and prev_version != __version__:
+            entry["upgraded_from"] = prev_version[:32]
+        try:
+            hist = json.loads(st.meta("lifecycle", "[]"))
+            hist = [h for h in hist if isinstance(h, dict)] if isinstance(hist, list) else []
+        except ValueError:
+            hist = []
+        hist = (hist + [entry])[-LIFECYCLE_KEEP:]
+        values = {"running": "1", "last_start": now, "starts": starts + 1, "lifecycle": json.dumps(hist, separators=(",", ":")), "last_version": __version__}
+        if self.boot_id:
+            values["last_boot_id"] = self.boot_id
+        if first_start is None:
+            values["first_start"] = now
+        try:
+            st.set_metas(values)
+        except Exception as exc:  # read-only or failing storage: keep running
+            log.warning("could not record service start: %s", exc)
+        text = {
+            "first_start": "BandWatch started for the first time",
+            "upgrade": "BandWatch started after an upgrade from a version without lifecycle tracking",
+            "after_reboot": "BandWatch started after a router reboot",
+            "restart": "BandWatch service restarted",
+        }[kind]
+        if previous_stop == "unclean":
+            text += "; the previous run did not shut down cleanly (crash, forced stop or power loss)"
+        if entry.get("upgraded_from"):
+            text += "; upgraded from %s" % entry["upgraded_from"]
+        self._event("warning" if previous_stop == "unclean" else "info", "service", "service_" + kind, text)
+        return {"current": entry, "history": hist, "starts": starts + 1, "first_start": int(first_start) if first_start else now}
+
+    def _save_prebuffer(self, buf):
+        items = [[s_, k, t, b] for (s_, k, t), b in list(buf.items())[:MAX_SAVED_PREBUFFER]]
+        try:
+            self.store.set_states({"prebuffer": {"boot": self.boot_id, "items": items}})
+            log.info("kept %d sample buckets gathered before the clock was trusted", len(items))
+        except Exception as exc:
+            log.warning("could not keep buffered samples: %s", exc)
+
+    def _load_prebuffer(self):
+        st = self.store.get_state("prebuffer")
+        if not st:
+            return
+        try:
+            self.store.set_states({"prebuffer": None})
+        except Exception:
+            pass
+        items = st.get("items") if isinstance(st, dict) else None
+        if not isinstance(items, list) or not items:
+            return
+        if st.get("boot") and st.get("boot") == self.boot_id:
+            for it in items:
+                try:
+                    s_, k, t, b = it
+                    if isinstance(b, list) and len(b) == len(stmod.new_bucket()):
+                        self.prebuffer[(str(s_), str(k), int(t))] = b
+                except (TypeError, ValueError):
+                    continue
+            self._event("info", "store", "prebuffer_restored", "Restored %d sample buckets that were waiting for a trusted clock before the restart" % len(self.prebuffer))
+        else:
+            self._event("warning", "store", "prebuffer_lost", "%d sample buckets gathered before the clock was trusted could not be kept across the reboot" % len(items))
 
     # -- restart recovery -----------------------------------------------------------
 
@@ -212,10 +327,19 @@ class Engine:
         for t in (self.thread, self.aux_thread):
             if t:
                 t.join(timeout)
+        self.monitor.finish()
         try:
             self.flush()
         except Exception as exc:
             log.error("final flush failed: %s", exc)
+        with self.emit_lock:
+            pre, self.prebuffer = (self.prebuffer, {}) if not self.clock_trusted else ({}, self.prebuffer)
+        if pre:
+            self._save_prebuffer(pre)
+        try:
+            self.store.set_metas({"running": "0", "last_stop": int(time.time())})
+        except Exception as exc:
+            log.warning("could not record clean shutdown: %s", exc)
         self.store.close()
 
     def _loop_error(self, where, exc):
@@ -238,6 +362,7 @@ class Engine:
             try:
                 wall = self._check_clock(now)
                 if now >= due["wan"]:
+                    self._sample_timing(now - due["wan"], s["wan.sample_interval"])
                     with self.wan_lock:
                         if saved is None:
                             self.wan.detect(now)
@@ -255,6 +380,7 @@ class Engine:
                     due["wan"] = max(due["wan"] + s["wan.sample_interval"], now + 0.2)
                 if now >= due["sys"]:
                     self.system.poll(now)
+                    self.monitor.observe(wall, now, self.system.info, self.monitor_counters())
                     self._check_quota()
                     due["sys"] = now + 5.0
             except Exception as exc:
@@ -290,6 +416,9 @@ class Engine:
                     if live is not None:
                         self.aria2_live.push(wall, live["down"], live["up"])
                     due["aria2"] = self.p.monotonic() + (s["aria2.poll_interval"] if live is not None else 15.0)
+                if not self.early_flush_done and self.trusted_at_mono is not None:
+                    self.early_flush_done = True
+                    self.flush_due = min(self.flush_due, max(now, self.trusted_at_mono) + min(FIRST_FLUSH_DELAY, s["storage.flush_interval"]))
                 if now >= self.flush_due:
                     self.flush()
                     self.flush_due = self.p.monotonic() + s["storage.flush_interval"]
@@ -298,6 +427,20 @@ class Engine:
                 self._loop_error("providers", exc)
             delay = min(*due.values(), self.flush_due) - self.p.monotonic()
             self.stop_event.wait(max(0.05, min(delay, 1.0)))
+
+    def monitor_counters(self):
+        st = self.sample_stats
+        coll = sum(c.error_count for c in (self.wan.status, self.devices.status, self.identity.status, self.aria2.status, self.vnstat.status, self.system.status))
+        return {"wan_bytes": self.wan_bytes_total, "samples": st["samples"], "late": st["late"], "missed": st["missed"], "coll_err": coll, "loop_err": self.loop_errors}
+
+    def _sample_timing(self, late, interval):
+        st = self.sample_stats
+        st["samples"] += 1
+        if late > 1.0:
+            st["late"] += 1
+            st["max_late_ms"] = max(st["max_late_ms"], int(late * 1000))
+        if late >= interval:
+            st["missed"] += int(late // interval)
 
     def flush(self):
         wall = time.time()
@@ -310,6 +453,9 @@ class Engine:
             with self.events_lock:
                 events, self.pending_events = self.pending_events, []
             self.store.add_events(events)
+            health_rows = self.monitor.take_unsaved()
+            if not self.store.add_health(health_rows):
+                self.monitor.restore_unsaved(health_rows)
         except Exception as exc:
             log.warning("metadata flush failed: %s", exc)
         s = self.settings
@@ -339,26 +485,64 @@ class Engine:
 
     # -- cross checks -----------------------------------------------------------
 
+    DIRECTION_MIN_SAMPLES = 20
+
     def _direction_sample(self, snaps):
+        """Collect WAN vs. per-device samples for the Bandix direction check.
+
+        Only samples that can tell the directions apart are kept: real
+        traffic, clearly one-directional, mostly explained by LAN devices
+        (not by the router itself, e.g. aria2 or package downloads). BandWatch
+        never generates traffic for this check and never changes the
+        setting automatically.
+        """
         last = self.wan_live.last()
-        if not last or last[1] is None:
+        if not last or last[1] is None or last[2] is None:
             return
+        wrx, wtx = last[1], last[2]
         down = sum(sn.down or 0 for sn in snaps.values())
         up = sum(sn.up or 0 for sn in snaps.values())
-        if max(last[1], last[2]) > 250_000:  # only meaningful with real traffic
-            self.direction_check.append((last[1], last[2], down, up))
+        skip = self.direction_skipped
+        if max(wrx, wtx) <= 250_000:
+            skip["low_traffic"] += 1
+            return
+        aria = self.aria2.live
+        if aria and (aria.get("down") or 0) + (aria.get("up") or 0) > 0.2 * (wrx + wtx):
+            skip["router_traffic"] += 1
+            return
+        if down + up < 0.3 * (wrx + wtx):
+            skip["unattributed"] += 1
+            return
+        if max(wrx, wtx) < 3 * max(1.0, min(wrx, wtx)):
+            skip["symmetric"] += 1
+            return
+        self.direction_check.append((wrx, wtx, down, up))
 
     def direction_verdict(self):
         """Compare device download/upload sums with WAN rx/tx."""
-        if len(self.direction_check) < 20:
-            return {"state": "insufficient_data"}
+        n = len(self.direction_check)
+        base = {"samples": n, "required": self.DIRECTION_MIN_SAMPLES, "configured": self.settings["devices.bandix_direction"], "skipped": dict(self.direction_skipped)}
+        if self.devices.status.provider != "bandix":
+            return dict(base, state="not_applicable", message="The direction check applies to Bandix only.")
+        if n < self.DIRECTION_MIN_SAMPLES:
+            return dict(
+                base,
+                state="insufficient_data",
+                message=(
+                    "Pending: %d of %d usable samples. A usable sample needs a few seconds of clearly one-directional Internet traffic "
+                    "from a LAN device (for example a large download on a phone or PC). Traffic generated by the router itself "
+                    "(aria2, updates) is ignored. BandWatch never creates traffic for this check." % (n, self.DIRECTION_MIN_SAMPLES)
+                ),
+            )
         same = swapped = 0.0
         for wrx, wtx, down, up in self.direction_check:
             same += abs(wrx - down) + abs(wtx - up)
             swapped += abs(wrx - up) + abs(wtx - down)
         if swapped < same * 0.5:
-            return {"state": "suspect_swapped", "message": "Per-device download/upload appear inverted relative to WAN counters. Consider changing 'Bandix direction' in Settings."}
-        return {"state": "consistent"}
+            return dict(base, state="suspect_swapped", message="Per-device download/upload appear inverted relative to WAN counters. Consider changing 'Bandix direction' in Settings.")
+        if same < swapped * 0.5:
+            return dict(base, state="consistent", message="Per-device directions agree with the WAN counters.")
+        return dict(base, state="inconclusive", message="Samples do not clearly confirm either direction; collection continues.")
 
     # -- quota ---------------------------------------------------------------------
 
@@ -413,6 +597,7 @@ class Engine:
                 self.devices = perdevice.make_provider(self.p, self.settings)
                 self.dev_snaps = {}
                 self.direction_check.clear()
+                self.direction_skipped = dict.fromkeys(self.direction_skipped, 0)
             if new["aria2.url"] != old["aria2.url"] and self.secrets.has("aria2_secret"):
                 # The secret belongs to the old endpoint: never send it elsewhere.
                 self.secrets.set("aria2_secret", "")
@@ -545,6 +730,88 @@ class Engine:
         cov = analytics.summary(self.store, "dev", "*", a, b, now, self.first_ts())
         return rows, cov
 
+    def clock_wait(self):
+        """Why the clock is not trusted yet (None when it is)."""
+        if self.clock_trusted:
+            return None
+        if self.p.time() < MIN_VALID_WALL:
+            return {"reason": "clock_not_set"}
+        up = self._uptime()
+        if up is not None and up < CLOCK_TRUST_UPTIME:
+            return {"reason": "waiting_after_boot", "remaining_s": int(CLOCK_TRUST_UPTIME - up)}
+        return {"reason": "checking"}
+
+    def persistence_status(self):
+        """Is history being saved? Distinguishes a normal empty start-up
+        database from an actual persistence problem."""
+        now = time.time()
+        mono = self.p.monotonic()
+        db = self.store.status()
+        interval = self.settings["storage.flush_interval"]
+        svc_up = max(0, int(now - self.started_wall))
+        with self.emit_lock:
+            pre = len(self.prebuffer)
+        pending = db["pending_buckets"] + pre
+        next_in = max(0, int(self.flush_due - mono)) if self.flush_due else None
+        oldest = self.store.oldest_sample_time()
+        last_flush = db["last_flush"]
+        if db["last_flush_error"]:
+            state = "failing"
+            text = "The last attempt to save data failed (%s). Unsaved data is kept in memory and retried." % (db["last_flush_error_code"] or "error")
+        elif not self.clock_trusted:
+            state = "waiting_for_clock"
+            text = "Samples are kept in memory until the router clock is trustworthy (about 10 minutes after boot or after time synchronisation). This is normal after a reboot."
+        elif db["last_write"] is None and oldest is None:
+            grace = interval + FIRST_FLUSH_DELAY + 120
+            if pending == 0 and svc_up > 120:
+                state = "no_samples"
+                text = "No samples have been collected yet. Check the collector states below."
+            elif svc_up <= grace or (next_in is not None and last_flush is None):
+                state = "collecting"
+                text = "An empty history is normal right after the first start: collected data is saved to storage for the first time %s." % ("in about %d s" % next_in if next_in is not None else "shortly")
+            else:
+                state = "overdue"
+                text = "Data has been collected for %d s but nothing has been saved yet." % svc_up
+        elif last_flush is not None and now - last_flush > 3 * interval + 120:
+            state = "overdue"
+            text = "The last save was %d s ago; saves are expected every %d s." % (now - last_flush, interval)
+        elif db["last_write"] is None:
+            state = "ok"
+            text = "Earlier history is stored. Data collected since this start is saved for the first time %s." % ("in about %d s" % next_in if next_in is not None else "shortly")
+        else:
+            state = "ok"
+            text = "History is being saved every %d s." % interval
+        return {
+            "state": state,
+            "explanation": text,
+            "service_started": int(self.started_wall),
+            "service_uptime_s": svc_up,
+            "router_uptime_s": self.system.info.get("uptime"),
+            "database_opened_at": db["opened_at"],
+            "database_open_ms": db["open_ms"],
+            "flush_interval_s": interval,
+            "first_flush_delay_s": int(min(FIRST_FLUSH_DELAY, interval)),
+            "next_flush_in_s": next_in,
+            "last_flush_attempt": int(last_flush) if last_flush else None,
+            "last_successful_save": int(db["last_write"]) if db["last_write"] else None,
+            "last_save_buckets": db["last_write_rows"],
+            "flush_count": db["flush_count"],
+            "flush_failures": db["flush_failures"],
+            "last_flush_error_code": db["last_flush_error_code"],
+            "pending_buckets": pending,
+            "prebuffered_buckets": pre,
+            "clock_trusted": self.clock_trusted,
+            "clock_wait": self.clock_wait(),
+            "oldest_saved_sample": int(oldest) if oldest is not None else None,
+            "history_predates_this_start": bool(oldest is not None and oldest < self.started_wall - 60),
+            "integrity_check": db["integrity"],
+            "recovered_from_corruption": bool(db["recovered_from"]),
+            "journal_mode": db["journal_mode"],
+            "schema_version": db["schema_version"],
+            "size_bytes": db.get("size_bytes"),
+            "rows": {k[5:]: v for k, v in db.items() if k.startswith("rows_")},
+        }
+
     def health(self):
         sysinfo = dict(self.system.info)
         if self.service.demo:
@@ -567,38 +834,18 @@ class Engine:
             "loop_errors": self.loop_errors,
             "flush_interval": self.settings["storage.flush_interval"],
             "data_dir": self.data_dir_label,
+            "persistence": self.persistence_status(),
+            "resources": {name: self.monitor.aggregate(self.monitor.rows(time.time() - secs)) for name, secs in (("last_hour", 3600), ("last_24h", 86400))},
+            "lifecycle": {"current": self.lifecycle["current"], "starts": self.lifecycle["starts"], "history": self.lifecycle["history"][-10:]},
+            "sampling": dict(self.sample_stats),
         }
 
     def diagnostics(self):
-        """Sanitised diagnostic snapshot: no MACs, IPs, hostnames or secrets."""
-        h = self.health()
-        board = h["system"].get("board", {})
-        colls = []
-        for c in h["collectors"]:
-            c = dict(c)
-            c.pop("interfaces", None)
-            colls.append(c)
-        wan_ifaces = [{"device": i.get("device"), "proto": i.get("proto"), "families": i.get("families"), "present": i.get("present"), "tunnel": i.get("tunnel")} for i in self.wan.status.extra.get("interfaces", [])]
-        return {
-            "generated": int(time.time()),
-            "bandwatch_version": __version__,
-            "mode": "demo" if self.service.demo else "production",
-            "board": board,
-            "python": _python_info(),
-            "settings": {k: v for k, v in self.settings.as_dict().items() if not k.startswith("devices.bandix_url") and not k.startswith("aria2.url")},
-            "aria2_secret_configured": self.secrets.has("aria2_secret"),
-            "collectors": colls,
-            "wan_detection": {"source": self.wan.source, "interfaces": wan_ifaces, "count": len(self.wan.ifaces)},
-            "device_counts": {"identified": len(self.identity.devices), "provider_reported": len(self.dev_snaps)},
-            "direction_check": self.direction_verdict(),
-            "database": {k: v for k, v in h["database"].items() if k != "path"},
-            "system": {k: v for k, v in h["system"].items() if k not in ("board",)},
-            "accounting_notes": h["accounting_notes"],
-            "clock_trusted": self.clock_trusted,
-            "loop_errors": self.loop_errors,
-            "timezone": self.tz_label,
-            "recent_event_kinds": [e["kind"] for e in h["events"]],
-        }
+        """Sanitised diagnostic report built from an explicit allow-list
+        (see :mod:`bandwatch.report`)."""
+        from . import report
+
+        return report.build(self)
 
 
 def _python_info():

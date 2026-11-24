@@ -89,7 +89,7 @@ class Aria2Collector:
         self.max_rate = settings["wan.max_rate_mbps"] * 125_000
         self.enabled = settings["aria2.mode"] != "off"
         if not self.enabled:
-            self.status.set(DISABLED, "aria2 integration disabled in settings")
+            self.status.set(DISABLED, "aria2 integration disabled in settings", code="disabled")
 
     def _token(self):
         secret = self.secrets.get("aria2_secret")
@@ -139,15 +139,15 @@ class Aria2Collector:
                 ]
             )
         except PermissionError as exc:
-            self.status.set(ERROR, "aria2 rejected the request (%s). Check the RPC secret." % exc)
+            self.status.set(ERROR, "aria2 rejected the request (%s). Check the RPC secret." % exc, code="auth_rejected")
             self._fail(now)
             return None
         except (OSError, ValueError) as exc:
             was_error = self.status.state == ERROR
             if self.settings["aria2.mode"] == "auto" and self.session is None:
-                self.status.set(UNAVAILABLE, "aria2 RPC not reachable at %s" % self.settings["aria2.url"])
+                self.status.set(UNAVAILABLE, "aria2 RPC not reachable at %s" % self.settings["aria2.url"], code="not_running")
             else:
-                self.status.set(ERROR, "aria2 RPC unavailable (%s)" % (str(exc)[:60] or type(exc).__name__))
+                self.status.set(ERROR, "aria2 RPC unavailable (%s)" % (str(exc)[:60] or type(exc).__name__), code="rpc_unreachable" if isinstance(exc, OSError) else "bad_response")
                 if not was_error and self.session is not None:
                     self.events.append(("warning", "aria2_down", "aria2 RPC became unreachable"))
             self._fail(now)

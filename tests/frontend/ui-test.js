@@ -425,6 +425,61 @@ async function watchErrors(page) {
       assert(!t.includes('<+0530>'), 'raw POSIX timezone shown');
     });
 
+    await check('health: one-click diagnostic report, self-check and persistence status', async () => {
+      const c = await browser.newContext({ acceptDownloads: true, viewport: { width: 1280, height: 900 } });
+      const p = await c.newPage();
+      await p.goto(`${base}/#/health`);
+      await p.waitForSelector('#h-checks-body .check-counts', { timeout: 15000 });
+      const t = await p.textContent('#main');
+      assert(t.includes('Download Diagnostic Report'), 'report button missing');
+      assert(/never uploads/i.test(t), 'export description missing');
+      assert(t.includes('Database & history') && t.includes('Service uptime') && t.includes('Next save'), 'persistence status missing');
+      assert(t.includes('BandWatch resource use') && t.includes('not an idle benchmark'), 'resource summary missing');
+      const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 15000 }), p.click('[data-report="zip"]')]);
+      assert(/^bandwatch-report-.+\.zip$/.test(dl.suggestedFilename()), dl.suggestedFilename());
+      const file = await dl.path();
+      const head = fs.readFileSync(file).subarray(0, 2).toString();
+      assert(head === 'PK', 'not a ZIP file');
+      const txt = fs.readFileSync(file).toString('latin1');
+      for (const leak of ['192.168.', 'aa:bb', 'work-laptop', 'bw-ui-']) assert(!txt.includes(leak), `report contains ${leak}`);
+      await c.close();
+    });
+
+    await check('settings: manual update check (GitHub mocked, nothing sent before the click)', async () => {
+      const c = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const p = await c.newPage();
+      const gh = [];
+      await p.route('https://api.github.com/**', (route) => {
+        gh.push(route.request());
+        route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify([
+          { tag_name: 'v0.1.0-beta.1', draft: false, prerelease: true, html_url: 'https://github.com/ish4ra/BandWatch/releases/tag/v0.1.0-beta.1', published_at: '2026-11-21T14:51:04Z', body: 'old' },
+          { tag_name: 'v9.9.9-beta.1', draft: false, prerelease: true, html_url: 'https://github.com/ish4ra/BandWatch/releases/tag/v9.9.9-beta.1', published_at: '2026-12-01T10:00:00Z', body: '<img src=x onerror=alert(1)> notes' },
+          { tag_name: 'v99.0.0', draft: true, prerelease: false, html_url: 'https://github.com/ish4ra/BandWatch/releases/tag/v99.0.0', body: 'draft' },
+          { tag_name: 'v50.0.0', draft: false, prerelease: false, html_url: 'https://evil.example/releases/v50', body: 'not ours' },
+        ]) });
+      });
+      await p.goto(`${base}/#/settings`);
+      await p.waitForSelector('#u-check', { timeout: 10000 });
+      await p.waitForTimeout(500);
+      assert(gh.length === 0, 'update check ran without a click');
+      await p.click('#u-check');
+      await p.waitForSelector('#u-body .kv', { timeout: 10000 });
+      const t = await p.textContent('#s-updates');
+      assert(t.includes('v9.9.9-beta.1') && /newer version is available/i.test(t) && t.includes('Beta'), t);
+      assert(!t.includes('v99.0.0') && !t.includes('v50.0.0'), 'draft or foreign release offered');
+      assert(!(await p.$('#s-updates img')), 'release notes rendered as HTML');
+      const href = await p.getAttribute('#u-body a.btn', 'href');
+      assert(href.startsWith('https://github.com/ish4ra/BandWatch/releases/'), href);
+      const req = gh[0];
+      assert(!req.headers().cookie && !req.headers().referer, 'credentials or referrer sent to GitHub');
+      await p.unroute('https://api.github.com/**');
+      await p.route('https://api.github.com/**', (route) => route.abort());
+      await p.click('#u-check');
+      await p.waitForSelector('#u-body .note.warn', { timeout: 10000 });
+      assert((await p.textContent('#u-body')).includes('GitHub Releases'), 'no fallback link');
+      await c.close();
+    });
+
     if (FULL) await check('device page: custom date range', async () => {
       const c10 = await browser.newContext({ viewport: { width: 1280, height: 900 } });
       const p10 = await c10.newPage();

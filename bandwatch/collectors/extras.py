@@ -25,11 +25,11 @@ class VnstatReader:
         self.cache = None
         self.cache_t = 0.0
         if settings["vnstat.mode"] == "off":
-            self.status.set(DISABLED, "vnStat integration disabled")
+            self.status.set(DISABLED, "vnStat integration disabled", code="disabled")
         elif not platform.which("vnstat"):
-            self.status.set(UNAVAILABLE, "vnStat is not installed (optional)")
+            self.status.set(UNAVAILABLE, "vnStat is not installed (optional)", code="not_installed")
         else:
-            self.status.set(OK, "Available (queried on demand)")
+            self.status.set(OK, "Available (queried on demand)", code="on_demand")
 
     def available(self):
         return self.settings["vnstat.mode"] != "off" and bool(self.p.which("vnstat"))
@@ -42,12 +42,12 @@ class VnstatReader:
             return self.cache
         out = self.p.run(["vnstat", "--json"], timeout=10.0)
         if not out:
-            self.status.set(UNAVAILABLE, "vnstat did not return data")
+            self.status.set(UNAVAILABLE, "vnstat did not return data", code="no_data")
             return None
         try:
             doc = json.loads(out)
         except ValueError:
-            self.status.set(UNAVAILABLE, "vnstat output not understood")
+            self.status.set(UNAVAILABLE, "vnstat output not understood", code="bad_output")
             return None
         self.cache = parse_vnstat(doc)
         self.cache_t = now

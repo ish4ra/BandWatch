@@ -76,8 +76,42 @@ CREATE TABLE IF NOT EXISTS state (k TEXT PRIMARY KEY, v TEXT);
 # Ordered list of (version, sql). Version 1 is the initial schema.
 MIGRATIONS = [(1, SCHEMA_V1)]
 
+# Additive, optional tables created on every open (idempotent). They do not
+# change the schema version, so an older BandWatch (e.g. 0.1.0-beta.1 after a
+# rollback) still opens the database and simply ignores them.
+#
+# ``health``: one row per 15-minute interval of BandWatch's own resource use
+# and sampling quality (written together with the regular batched flush).
+ADDITIVE_DDL = """
+CREATE TABLE IF NOT EXISTS health (
+  t INTEGER PRIMARY KEY, dur INTEGER NOT NULL, n INTEGER NOT NULL,
+  cpu_avg REAL, cpu_peak REAL, rss_avg INTEGER, rss_peak INTEGER, thr_peak INTEGER,
+  sys_cpu_avg REAL, mem_avg REAL, wan_bytes INTEGER, samples INTEGER, late INTEGER,
+  missed INTEGER, coll_err INTEGER, loop_err INTEGER)
+"""
+HEALTH_COLS = ("t", "dur", "n", "cpu_avg", "cpu_peak", "rss_avg", "rss_peak", "thr_peak", "sys_cpu_avg", "mem_avg", "wan_bytes", "samples", "late", "missed", "coll_err", "loop_err")
+HEALTH_RETENTION_DAYS = 31
+
 MAX_EVENTS = 2000
 MAX_TASKS = 1000
+
+
+def flush_error_code(text):
+    """Category of a database error (exported instead of the raw message)."""
+    t = (text or "").lower()
+    if not t:
+        return None
+    if "full" in t or "no space" in t:
+        return "disk_full"
+    if "readonly" in t or "read-only" in t or "permission" in t:
+        return "read_only"
+    if "locked" in t or "busy" in t:
+        return "locked"
+    if "malformed" in t or "corrupt" in t or "not a database" in t:
+        return "corrupt"
+    if "i/o" in t or "disk" in t:
+        return "io_error"
+    return "other"
 
 
 class ModeMismatch(RuntimeError):
@@ -173,8 +207,17 @@ class Store:
         self.journal_mode = None
         self.last_flush = None
         self.last_flush_error = None
+        self.last_flush_error_at = None
         self.flush_count = 0
+        self.flush_failures = 0
+        self.last_write = None  # last flush that actually wrote sample rows
+        self.last_write_rows = 0
+        self.rows_written = 0
+        self.integrity = "unknown"
+        t0 = time.monotonic()
+        self.opened_at = time.time()
         self.conn = self._open()
+        self.open_ms = int((time.monotonic() - t0) * 1000)
 
     # -- opening, recovery and migrations -----------------------------------
 
@@ -192,6 +235,7 @@ class Store:
             row = conn.execute("PRAGMA quick_check(1)").fetchone()
             if not row or row[0] != "ok":
                 raise sqlite3.DatabaseError("quick_check: %s" % (row[0] if row else "no result"))
+            self.integrity = "ok"
             self._configure(conn)
             self._migrate(conn)
         except sqlite3.DatabaseError as exc:
@@ -203,6 +247,7 @@ class Store:
             except Exception:
                 pass
             self.recovered_from = self._quarantine()
+            self.integrity = "recreated"
             conn = self._connect()
             self._configure(conn)
             self._migrate(conn)
@@ -276,6 +321,7 @@ class Store:
                 conn.execute("ROLLBACK")
                 raise
             log.info("database migrated to schema %d", version)
+        conn.execute(ADDITIVE_DDL)
 
     def _check_mode(self, conn):
         row = conn.execute("SELECT v FROM meta WHERE k='mode'").fetchone()
@@ -287,6 +333,15 @@ class Store:
 
     def close(self):
         with self.lock:
+            try:
+                if self.journal_mode == "wal":
+                    # Fold the WAL into the main file so a clean stop leaves
+                    # a self-contained database (also done by SQLite itself
+                    # when the last connection closes; explicit is cheaper to
+                    # reason about).
+                    self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
             try:
                 self.conn.close()
             except sqlite3.Error:
@@ -302,6 +357,17 @@ class Store:
     def set_meta(self, key, value):
         with self.lock:
             self.conn.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, str(value)))
+
+    def set_metas(self, values):
+        """Write several metadata keys in one transaction."""
+        with self.lock:
+            self.conn.execute("BEGIN")
+            try:
+                self.conn.executemany("INSERT OR REPLACE INTO meta VALUES (?, ?)", [(k, str(v)) for k, v in values.items()])
+                self.conn.execute("COMMIT")
+            except sqlite3.Error:
+                self.conn.execute("ROLLBACK")
+                raise
 
     def get_state(self, key):
         with self.lock:
@@ -414,6 +480,8 @@ class Store:
                     _merge_into(self.pending, self.inflight)
                     self.inflight = {}
                 self.last_flush_error = str(exc)
+                self.last_flush_error_at = now
+                self.flush_failures += 1
                 log.error("database flush failed: %s", exc)
                 return False
             with self.plock:
@@ -421,6 +489,10 @@ class Store:
             self.last_flush = now
             self.last_flush_error = None
             self.flush_count += 1
+            if batch:
+                self.last_write = now
+                self.last_write_rows = len(batch)
+                self.rows_written += len(batch)
         return True
 
     def flush(self, now=None, retention=None):
@@ -513,6 +585,7 @@ class Store:
             cutoff = tzmod.day_key(tzmod.local_date(now - ret["day_days"] * 86400, self.tz))
             conn.execute("DELETE FROM d1 WHERE day < ?", (cutoff,))
             conn.execute("DELETE FROM events WHERE id <= (SELECT max(id) FROM events) - ?", (MAX_EVENTS,))
+            conn.execute("DELETE FROM health WHERE t < ?", (int(now - HEALTH_RETENTION_DAYS * 86400),))
             conn.execute(
                 "DELETE FROM tasks WHERE gid IN (SELECT gid FROM tasks ORDER BY last_seen DESC LIMIT -1 OFFSET ?)",
                 (MAX_TASKS,),
@@ -729,6 +802,44 @@ class Store:
             rows = self.conn.execute("SELECT %s FROM tasks ORDER BY last_seen DESC LIMIT ?" % ", ".join(keys), (int(limit),)).fetchall()
         return [dict(zip(keys, r)) for r in rows]
 
+    # -- BandWatch self-monitoring ------------------------------------------------
+
+    def add_health(self, rows):
+        """Persist closed 15-minute self-monitoring intervals (dicts)."""
+        if not rows:
+            return True
+        with self.lock:
+            try:
+                self.conn.execute("BEGIN")
+                self.conn.executemany(
+                    "INSERT OR REPLACE INTO health (%s) VALUES (%s)" % (", ".join(HEALTH_COLS), ", ".join("?" * len(HEALTH_COLS))),
+                    [tuple(r.get(c) for c in HEALTH_COLS) for r in rows],
+                )
+                self.conn.execute("COMMIT")
+            except sqlite3.Error as exc:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                log.warning("could not record health intervals: %s", exc)
+                return False
+        return True
+
+    def health_rows(self, since):
+        with self.lock:
+            rows = self.conn.execute("SELECT %s FROM health WHERE t >= ? ORDER BY t" % ", ".join(HEALTH_COLS), (int(since),)).fetchall()
+        return [dict(zip(HEALTH_COLS, r)) for r in rows]
+
+    def oldest_sample_time(self):
+        """Oldest persisted sample (any tier), or None if nothing is stored yet."""
+        with self.lock:
+            cands = [self.conn.execute("SELECT min(t) FROM %s" % tbl).fetchone()[0] for tbl in ("m1", "m15")]
+            d = self.conn.execute("SELECT min(day) FROM d1").fetchone()[0]
+        cands = [c for c in cands if c is not None]
+        if d is not None:
+            cands.append(tzmod.local_midnight(tzmod.key_to_date(d), self.tz))
+        return min(cands) if cands else None
+
     # -- status -----------------------------------------------------------------
 
     def status(self):
@@ -737,6 +848,14 @@ class Store:
             "journal_mode": self.journal_mode,
             "last_flush": self.last_flush,
             "last_flush_error": self.last_flush_error,
+            "last_flush_error_code": flush_error_code(self.last_flush_error),
+            "last_write": self.last_write,
+            "last_write_rows": self.last_write_rows,
+            "flush_count": self.flush_count,
+            "flush_failures": self.flush_failures,
+            "integrity": self.integrity,
+            "open_ms": self.open_ms,
+            "opened_at": int(self.opened_at),
             "pending_buckets": len(self.pending) + len(self.inflight),
             "recovered_from": os.path.basename(self.recovered_from) if self.recovered_from else None,
             "schema_version": int(self.meta("schema_version", "0")),

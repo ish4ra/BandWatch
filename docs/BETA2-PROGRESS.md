@@ -12,11 +12,11 @@ resume without repeating work. Remove or archive it after the release.
 | # | Milestone | State |
 |---|-----------|-------|
 | 1 | Repository inspection, plan, Firefox reproduction harness | done |
-| 2 | Database reliability and diagnostic privacy | pending |
-| 3 | Automatic local diagnostics and one-click report | pending |
-| 4 | Hardware compatibility and upgrade from beta.1 | pending |
-| 5 | Firefox investigation (issue #2) | pending (CI results needed) |
-| 6 | Manual update checker | pending |
+| 2 | Database reliability and diagnostic privacy | done |
+| 3 | Automatic local diagnostics and one-click report | done (UI + API + tests) |
+| 4 | Hardware compatibility and upgrade from beta.1 | in progress: code-level upgrade test from the published beta.1 done; OpenWrt package upgrade test, docs pending |
+| 5 | Firefox investigation (issue #2) | in progress (see below) |
+| 6 | Manual update checker | done (browser-side; UI test with GitHub mocked) |
 | 7 | Final testing, packaging, docs, PR | pending |
 
 ## Findings from inspection (milestone 1)
@@ -48,6 +48,41 @@ in `tests/firefox-repro/`. New hypothesis not covered by earlier attempts: the
 dashboard's network-first **service worker** (every request of a controlled
 page is dispatched to it). Variants isolate SSE, service worker, keep-alive and
 context close vs navigation, each in a fresh browser.
+
+## Done in milestones 2, 3, 6
+
+- `store.py`: write tracking (`last_write` vs empty flush), flush error
+  categories, WAL checkpoint on clean close, additive `health` table (schema
+  stays 1 so beta.1 can open the DB after a rollback).
+- `engine.py`: lifecycle (`first_start`/`upgrade`/`restart`/`after_reboot`,
+  clean vs unclean previous stop, bounded history in `meta`), pre-buffer kept
+  across a restart within the same boot, early first save 90 s after the clock
+  is trusted, `persistence_status()`, sampling-delay counters, stricter Bandix
+  direction check (ignores router/aria2 traffic, symmetric traffic; adds
+  `inconclusive`; never auto-swaps).
+- `selfmon.py`: bounded 15-min resource intervals (96 in memory, 31 days in DB).
+- `report.py`: allow-listed report, check statuses, ZIP + SUMMARY.txt.
+- Collector `Status.code` (reports never include provider messages).
+- API: `/api/diagnostics/report.zip|report.json|checks` (auth required);
+  `/api/diagnostics` now returns the sanitised report.
+- UI: Health (report card, self-check, Database & history, resource use),
+  Settings (report card, Updates, data export). CSP `connect-src` adds only
+  `https://api.github.com`.
+- Tests: `test_persistence.py`, `test_report_privacy.py`,
+  `test_upgrade_beta1.py` (needs `BW_BETA1_TARBALL`; CI downloads and
+  verifies it), UI checks for report download and update check.
+
+## Firefox evidence so far
+
+- Run https://github.com/ish4ra/BandWatch/actions/runs/45304144386: 2 Firefox
+  runs x 8 variants x 30 loads = 480 loads, **zero stalls** (standalone server
+  with fetch/SSE/service worker/keep-alive/Connection: close, context close and
+  in-context navigation; BandWatch demo with SW allowed/blocked).
+- Same commit, full UI suite (CI run 45304144223): stalled at the 3rd context
+  (tablet) - `page.goto` waiting for `load` with 0 pending requests.
+- Next experiment (pushed): variants mirroring ui-test.js exactly (5 demo
+  servers, viewport per context, listeners, keep-open vs real close, SW
+  allowed vs blocked).
 
 ## Resume instructions
 

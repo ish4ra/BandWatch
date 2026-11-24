@@ -177,11 +177,11 @@ class WanCollector:
         text = self.p.read_text("/proc/net/dev")
         stats = plat.parse_net_dev(text)
         if not stats:
-            self.status.set(ERROR, "Cannot read /proc/net/dev")
+            self.status.set(ERROR, "Cannot read /proc/net/dev", code="counters_unreadable")
             self.last_t = None
             return None, None
         if not self.ifaces:
-            self.status.set(UNAVAILABLE, "No WAN interface with a default route was found")
+            self.status.set(UNAVAILABLE, "No WAN interface with a default route was found", code="no_default_route")
             self._mark_down(now, emit, True)
             return None, None
         missing = [d for d in self.ifaces if d not in stats]
@@ -228,13 +228,13 @@ class WanCollector:
             # First reading or a rebaseline: no measurement for this interval.
             self.last_t = now
             if self.status.state != OK:
-                self.status.set(DEGRADED, "Establishing counter baseline")
+                self.status.set(DEGRADED, "Establishing counter baseline", code="baseline")
             return None, None
         emit("wan", "*", now, dt_used, total_rx, total_tx, rate_ok)
         self.last_t = now
         msg = "Measuring %s" % ", ".join(self.ifaces)
         if missing:
-            self.status.set(DEGRADED, msg + " (missing: %s)" % ", ".join(missing))
+            self.status.set(DEGRADED, msg + " (missing: %s)" % ", ".join(missing), code="device_missing")
         else:
             self.status.ok(msg)
         return total_rx / dt_used, total_tx / dt_used
@@ -250,7 +250,7 @@ class WanCollector:
                 emit("wan", "*", now, dt, 0, 0, True)
         self.last_t = now
         if not no_route:
-            self.status.set(DEGRADED, "WAN device not present (reconnecting?)")
+            self.status.set(DEGRADED, "WAN device not present (reconnecting?)", code="device_missing")
 
     # -- checkpoints for restart recovery -----------------------------------------
 

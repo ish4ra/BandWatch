@@ -107,7 +107,7 @@ class BaseProvider:
 class NoProvider(BaseProvider):
     def __init__(self, platform, settings, reason="Per-device monitoring is disabled"):
         super().__init__(platform, settings)
-        self.status.set(DISABLED, reason)
+        self.status.set(DISABLED, reason, code="disabled")
 
     def poll(self, now, emit):
         return None
@@ -140,7 +140,7 @@ class BandixProvider(BaseProvider):
             except (OSError, ValueError) as exc:
                 last_exc = exc
         if info is None:
-            self.status.set(UNAVAILABLE, "Bandix not reachable at %s (%s)" % (self.settings["devices.bandix_url"], _short(last_exc)))
+            self.status.set(UNAVAILABLE, "Bandix not reachable at %s (%s)" % (self.settings["devices.bandix_url"], _short(last_exc)), code="not_reachable")
             return False
         data = info.get("data") if isinstance(info, dict) else None
         if not isinstance(data, dict) and isinstance(info, dict):
@@ -161,20 +161,20 @@ class BandixProvider(BaseProvider):
         try:
             resp = self.p.http_json(self._url("/api/traffic/devices"), timeout=2.5)
         except (OSError, ValueError) as exc:
-            self.status.set(ERROR, "Bandix request failed (%s)" % _short(exc))
+            self.status.set(ERROR, "Bandix request failed (%s)" % _short(exc), code="request_failed")
             self.version = None  # re-probe (Bandix may have restarted)
             self.backoff.fail(now)
             self.last_poll = None
             return None
         if not isinstance(resp, dict) or resp.get("status") not in ("success", None):
-            self.status.set(ERROR, "Unexpected Bandix response")
+            self.status.set(ERROR, "Unexpected Bandix response", code="bad_response")
             return None
         data = resp.get("data") or {}
         items = data.get("d")
         if items is None:
             items = data.get("devices")  # tolerate alternative naming
         if not isinstance(items, list):
-            self.status.set(ERROR, "Bandix response has no device list (unsupported version?)")
+            self.status.set(ERROR, "Bandix response has no device list (unsupported version?)", code="unsupported_version")
             return None
         swap = self.settings["devices.bandix_direction"] == "tx_is_download"
         has_wan = any(isinstance(d, dict) and ("w_rx_b" in d or "wan_rx_bytes" in d) for d in items)
@@ -229,7 +229,7 @@ class BandixProvider(BaseProvider):
         if has_wan or not items:
             self.status.ok("%d devices reported by Bandix %s" % (len(snaps), self.version))
         else:
-            self.status.set(DEGRADED, "Bandix does not report a WAN/LAN split; Internet usage per device is unavailable")
+            self.status.set(DEGRADED, "Bandix does not report a WAN/LAN split; Internet usage per device is unavailable", code="no_wan_split")
         return snaps
 
 
@@ -247,7 +247,7 @@ class NlbwmonProvider(BaseProvider):
             return None
         out = self.p.run(["nlbw", "-c", "json", "-g", "mac"], timeout=5.0)
         if not out:
-            self.status.set(UNAVAILABLE, "nlbwmon not available (nlbw command failed or no permission)")
+            self.status.set(UNAVAILABLE, "nlbwmon not available (nlbw command failed or no permission)", code="not_reachable")
             self.backoff.fail(now)
             return None
         try:
@@ -259,7 +259,7 @@ class NlbwmonProvider(BaseProvider):
             idx = {c: i for i, c in enumerate(cols)}
             imac, irx, itx = idx["mac"], idx["rx_bytes"], idx["tx_bytes"]
         except (ValueError, KeyError, TypeError):
-            self.status.set(ERROR, "Unexpected nlbwmon output")
+            self.status.set(ERROR, "Unexpected nlbwmon output", code="bad_response")
             self.backoff.fail(now)
             return None
         self.backoff.succeed()
@@ -291,7 +291,7 @@ class NlbwmonProvider(BaseProvider):
         if dt_ok and dt and (valid or not rows):
             emit("dev", "*", now, dt, tot[0], tot[1], False)
         self.expire(now)
-        self.status.set(DEGRADED, "nlbwmon (conntrack based): %d devices; rates are %d-second averages; offloaded flows may be under-counted" % (len(snaps), self.settings["devices.poll_interval"]))
+        self.status.set(DEGRADED, "nlbwmon (conntrack based): %d devices; rates are %d-second averages; offloaded flows may be under-counted" % (len(snaps), self.settings["devices.poll_interval"]), code="conntrack_estimates")
         self.status.last_ok = now
         return snaps
 
@@ -369,7 +369,7 @@ class AutoProvider(BaseProvider):
             self.status = self.nlbw.status
             return snaps
         self.status = Status("devices", "Per-device traffic")
-        self.status.set(UNAVAILABLE, "No supported per-device provider found (install Bandix or nlbwmon). WAN monitoring continues normally.")
+        self.status.set(UNAVAILABLE, "No supported per-device provider found (install Bandix or nlbwmon). WAN monitoring continues normally.", code="no_provider")
         return None
 
 

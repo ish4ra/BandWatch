@@ -36,7 +36,17 @@ const VARIANTS = {
   'min-sw-sse-navigate-connclose': { server: 'min-close', q: 'sse=1&sw=1', mode: 'navigate' },
   'bw-sw-allowed': { server: 'bw', mode: 'bw', serviceWorkers: 'allow' },
   'bw-sw-blocked': { server: 'bw', mode: 'bw', serviceWorkers: 'block' },
+  // Mirror tests/frontend/ui-test.js exactly: five demo servers (20 days of
+  // history on the main one), a context per screen size, request/console
+  // listeners, overflow check, 900 ms dwell; finished contexts either kept
+  // open after 'pagehide' (the beta.1 Firefox workaround) or really closed.
+  'uitest-keepopen-sw': { server: 'bw5', mode: 'uitest', close: 'keep', serviceWorkers: 'allow' },
+  'uitest-keepopen-nosw': { server: 'bw5', mode: 'uitest', close: 'keep', serviceWorkers: 'block' },
+  'uitest-close-sw': { server: 'bw5', mode: 'uitest', close: 'real', serviceWorkers: 'allow' },
+  'uitest-close-nosw': { server: 'bw5', mode: 'uitest', close: 'real', serviceWorkers: 'block' },
 };
+const SIZES = [[320, 640], [390, 844], [820, 1180], [1440, 900]];
+const VIEWS = ['overview', 'devices', 'aria2', 'history', 'health', 'settings'];
 
 function startProc(args, readyText, port) {
   const proc = spawn('python3', args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -65,7 +75,13 @@ async function timed(fn) {
 
 async function runVariant(name, v, port) {
   let server;
-  if (v.server === 'bw') {
+  let extra = [];
+  if (v.server === 'bw5') {
+    const mk = (p, args) => startProc(['-m', 'bandwatch', 'demo', '--port', String(p), '--data-dir', fs.mkdtempSync(path.join(os.tmpdir(), 'bw-repro-')), '--days', '20', ...args], '/api/session', p);
+    server = mk(port, []);
+    extra = [mk(port + 100, ['--auth', 'password', '--password', 'x-test-password']), mk(port + 200, ['--scenario', 'no-bandix', '--days', '0']), mk(port + 300, ['--scenario', 'no-aria2', '--days', '0']), mk(port + 400, ['--scenario', 'hostile-names', '--days', '2'])];
+    await Promise.all(extra.map((e) => e.ready()));
+  } else if (v.server === 'bw') {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bw-repro-'));
     server = startProc(['-m', 'bandwatch', 'demo', '--port', String(port), '--data-dir', dir, '--days', '3'], '/api/session', port);
   } else {
@@ -103,6 +119,33 @@ async function runVariant(name, v, port) {
         await page.waitForTimeout(400);
       }
       await ctx.close();
+    } else if (v.mode === 'uitest') {
+      for (let round = 0; loads.length < ITER && Date.now() - started < BUDGET_MS; round++) {
+        for (const [w, h] of SIZES) {
+          const ctx = await browser.newContext({ viewport: { width: w, height: h }, serviceWorkers: v.serviceWorkers });
+          for (const ev of ['request', 'response', 'requestfinished']) ctx.on(ev, () => {});
+          ctx.on('requestfailed', onFail);
+          const page = await ctx.newPage();
+          page.on('console', () => {});
+          page.on('pageerror', () => {});
+          for (const view of VIEWS) {
+            loads.push(await timed(async () => {
+              await page.goto(`${base}/#/${view}`, { timeout: STEP_TIMEOUT });
+              await page.waitForSelector('#main .card', { timeout: STEP_TIMEOUT });
+            }));
+            await page.waitForTimeout(900);
+            await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth).catch(() => {});
+          }
+          if (v.close === 'keep') {
+            await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))).catch(() => {});
+            await new Promise((r) => setTimeout(r, 1500));
+          } else {
+            await page.goto('about:blank', { timeout: 5000 }).catch(() => {});
+            await ctx.close();
+          }
+          if (loads.length >= ITER || Date.now() - started >= BUDGET_MS) break;
+        }
+      }
     } else {
       // BandWatch: the ui-test.js pattern - a context per screen size, six
       // views by URL, then a real context close.
@@ -124,6 +167,7 @@ async function runVariant(name, v, port) {
   } finally {
     await browser.close().catch(() => {});
     server.stop();
+    extra.forEach((e) => e.stop());
   }
   const stalls = loads.filter((l) => l.ms > STALL_MS || l.err);
   const sorted = loads.map((l) => l.ms).sort((a, b) => a - b);
@@ -140,12 +184,13 @@ async function runVariant(name, v, port) {
 }
 
 (async () => {
-  const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(VARIANTS);
+  const fromEnv = (process.env.REPRO_VARIANTS || '').split(/[ ,]+/).filter(Boolean);
+  const names = process.argv.slice(2).length ? process.argv.slice(2) : fromEnv.length ? fromEnv : Object.keys(VARIANTS);
   const browser = await playwright[BROWSER].launch();
   console.log(`Browser: ${BROWSER} ${browser.version()}  iterations/variant: ${ITER}  stall threshold: ${STALL_MS} ms`);
   await browser.close();
   const out = [];
-  let port = 18950;
+  let port = 18950; // bw5 variants also use port+100 .. port+400
   for (const name of names) {
     const v = VARIANTS[name];
     if (!v) throw new Error(`unknown variant ${name}`);

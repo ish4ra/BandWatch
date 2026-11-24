@@ -28,6 +28,15 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install --upgrade pip pytest
+      - name: Fetch the published beta.1 release (upgrade test)
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/beta1" && cd "$RUNNER_TEMP/beta1"
+          base=https://github.com/ish4ra/BandWatch/releases/download/v0.1.0-beta.1
+          curl -fsSLO "$base/bandwatch-0.1.0-beta.1-openwrt.tar.gz"
+          curl -fsSLO "$base/SHA256SUMS"
+          grep ' bandwatch-0.1.0-beta.1-openwrt.tar.gz$' SHA256SUMS | sha256sum -c -
+          echo "BW_BETA1_TARBALL=$RUNNER_TEMP/beta1/bandwatch-0.1.0-beta.1-openwrt.tar.gz" >> "$GITHUB_ENV"
       - name: Run tests
         run: python -m pytest -q
 

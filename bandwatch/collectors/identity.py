@@ -191,7 +191,7 @@ class IdentityCollector:
                 d.conn = "unknown"
         self.devices = devices
         if self.wifi_ok is False and getattr(self.p, "has_ubus", False):
-            self.status.set(DEGRADED, "Wi-Fi station lists unavailable (ubus permission?); connection types may be incomplete")
+            self.status.set(DEGRADED, "Wi-Fi station lists unavailable (ubus permission?); connection types may be incomplete", code="wifi_lists_unavailable")
         else:
             self.status.ok("%d devices identified" % len(devices))
         return devices

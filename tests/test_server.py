@@ -80,7 +80,7 @@ def test_path_traversal_blocked(srv, path):
 
 
 def test_api_requires_auth(srv):
-    for path in ("/api/overview", "/api/devices", "/api/settings", "/api/diagnostics", "/api/export"):
+    for path in ("/api/overview", "/api/devices", "/api/settings", "/api/diagnostics", "/api/export", "/api/diagnostics/report.zip", "/api/diagnostics/report.json", "/api/diagnostics/checks"):
         r, _ = req(srv["port"], "GET", path)
         assert r.status == 401, path
     r, body = req(srv["port"], "GET", "/api/session")
@@ -141,7 +141,7 @@ def test_secret_never_returned(srv):
     h = {"Cookie": cookie, "X-BandWatch-CSRF": csrf}
     r, _ = req(srv["port"], "POST", "/api/settings/aria2-secret", {"secret": "s3cr3t-value"}, headers=h)
     assert r.status == 200
-    for path in ("/api/settings", "/api/aria2", "/api/diagnostics", "/api/health", "/api/overview"):
+    for path in ("/api/settings", "/api/aria2", "/api/diagnostics", "/api/health", "/api/overview", "/api/diagnostics/report.json", "/api/diagnostics/checks"):
         r, body = req(srv["port"], "GET", path, headers={"Cookie": cookie})
         assert r.status == 200 and b"s3cr3t-value" not in body, path
     sec = srv["tmp"] / "secrets.json"
@@ -225,3 +225,24 @@ def test_live_streams_limited_per_client(srv):
     assert statuses == [200, 200, 503]  # third tab falls back to polling
     for c in conns:
         c.close()
+
+
+def test_one_click_report_download(srv):
+    import io
+    import zipfile
+
+    cookie, _csrf = login(srv["port"])
+    r, body = req(srv["port"], "GET", "/api/diagnostics/report.zip", headers={"Cookie": cookie})
+    assert r.status == 200 and r.getheader("Content-Type") == "application/zip"
+    disp = r.getheader("Content-Disposition")
+    assert disp.startswith('attachment; filename="bandwatch-report-') and disp.endswith('.zip"')
+    with zipfile.ZipFile(io.BytesIO(body)) as zf:
+        doc = json.loads(zf.read("bandwatch-report.json"))
+    assert doc["schema"] == "bandwatch-diagnostic-report"
+    assert doc["listening"]["bound_scopes"] == ["loopback"] and doc["listening"]["auth"] == "password"
+    r, body = req(srv["port"], "GET", "/api/diagnostics/checks", headers={"Cookie": cookie})
+    data = json.loads(body)
+    assert r.status == 200 and data["checks"] and "persistence" in data
+    # State-changing methods are not accepted on report URLs.
+    r, _ = req(srv["port"], "POST", "/api/diagnostics/report.zip", {}, headers={"Cookie": cookie})
+    assert r.status in (403, 404)
